@@ -1,0 +1,41 @@
+# # cloudbuild.yaml
+steps:
+  # 1. Pobierz klucz prywatny
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - '-c'
+      - |
+        gsutil cp gs://${_BUCKET_NAME}/keys/cyber_rsa4096_private.pem .
+
+  # 2. Zbuduj obraz (Docker)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'pixel-automator', '.']
+
+  # 3. Uruchom Automator
+  - name: 'pixel-automator'
+    env:
+      - '_DEVICE_CODENAME=${_DEVICE_CODENAME}'
+      - '_BUCKET_NAME=${_BUCKET_NAME}'
+    # Skrypt użyje domyślnego klucza cyber_rsa4096_private.pem z kroku 1
+    
+  # 4. Wyślij wyniki
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        RESULT_FILE=$(find . -name "ksu_patched_*.zip" | head -n 1)
+        if [ ! -z "$RESULT_FILE" ]; then
+          DATE=$(date +%Y%m%d)
+          FILENAME=$(basename "$RESULT_FILE")
+          gsutil cp "$RESULT_FILE" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME
+          gsutil cp build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/info.json
+        fi
+
+substitutions:
+  _DEVICE_CODENAME: 'frankel'
+  _BUCKET_NAME: 'moj-pixel-bucket'
+
+timeout: '3600s' 
+options:
+  machineType: 'E2_HIGHCPU_8'
