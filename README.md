@@ -35,3 +35,13 @@ This is a summary of the files used by `Dockerfile` and `cloudbuild.yaml`.
     *   Uses `avbtool.py` to sign the newly modified boot image with the custom `cyber_rsa4096_private.pem` key.
     *   Repackages the modified boot image into a new firmware zip file.
 6.  **Upload**: The final `ksu_patched_*.zip` artifact and a `build_status.json` file are uploaded back to a GCS bucket.
+
+
+
+
+
+
+
+
+Example run:
+docker run --rm -it   -v "$(pwd)/output:/app/output"   -v "$(pwd)/cyber_rsa4096_private.pem:/app/cyber_rsa4096_private.pem"   pixel_builder
