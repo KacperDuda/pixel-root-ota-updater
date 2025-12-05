@@ -77,12 +77,19 @@ rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR/images"
 
 CACHE_HIT=false
-# Sprawdzamy czy mamy gotowe pliki .img w cache
+# Sprawdzamy, czy cache jest ważny (młodszy niż 1 godzina)
 if [ -f "$CACHE_DIR/init_boot.img" ]; then
-    log_info "⚡ Cache Hit! Używam gotowych plików .img"
-    cp "$CACHE_DIR/"*.img "$WORK_DIR/images/" 2>/dev/null
-    INNER_ZIP="FROM_CACHE"
-    CACHE_HIT=true
+    MODIFICATION_TIME=$(stat -c %Y "$CACHE_DIR/init_boot.img")
+    CURRENT_TIME=$(date +%s)
+    
+    if [ $((CURRENT_TIME - MODIFICATION_TIME)) -lt 3600 ]; then
+        log_info "⚡ Cache Hit! Używam gotowych plików .img (młodsze niż 1h)"
+        cp "$CACHE_DIR/"*.img "$WORK_DIR/images/" 2>/dev/null
+        INNER_ZIP="FROM_CACHE"
+        CACHE_HIT=true
+    else
+        log_info "Cache jest starszy niż 1 godzina. Rozpakowuję ponownie."
+    fi
 fi
 
 if [ "$CACHE_HIT" = false ]; then

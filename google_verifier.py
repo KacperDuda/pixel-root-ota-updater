@@ -31,7 +31,7 @@ def main():
                 # We need to find the inner zip file, e.g., image-frankel-bd1a.250702.001.zip
                 inner_zip_name = None
                 for name in zip_ref.namelist():
-                    if name.startswith('image-') and name.endswith('.zip'):
+                    if 'image-' in name and name.endswith('.zip'):
                         inner_zip_name = name
                         break
                 
@@ -42,25 +42,21 @@ def main():
                 # Extract the inner zip
                 inner_zip_path = zip_ref.extract(inner_zip_name, path=temp_dir)
                 
-                # Now extract vbmeta.img from the inner zip
+                # Now extract all images from the inner zip
                 with zipfile.ZipFile(inner_zip_path, 'r') as inner_zip_ref:
-                    for name in inner_zip_ref.namelist():
-                        if name == 'vbmeta.img':
-                            inner_zip_ref.extract(name, path=temp_dir)
-                            vbmeta_path = os.path.join(temp_dir, name)
-                            break
-                
-                if not vbmeta_path:
-                    print("❌ ERROR: vbmeta.img not found in the inner archive.")
-                    sys.exit(1)
+                    inner_zip_ref.extractall(path=temp_dir)
+                    vbmeta_path = os.path.join(temp_dir, 'vbmeta.img')
+                    if not os.path.exists(vbmeta_path):
+                        print("❌ ERROR: vbmeta.img not found in the inner archive.")
+                        sys.exit(1)
 
                 print(f"INFO: Found vbmeta.img at {vbmeta_path}")
 
                 # Now, run avbtool verify_image.
                 # No --key is needed since the public key is embedded in vbmeta.
                 print("INFO: Running avbtool.py to verify vbmeta.img...")
-                avbtool_path = os.path.join(os.path.dirname(__file__), 'avbtool.py')
-                cmd = ['python3', avbtool_path, 'verify_image', '--image', vbmeta_path]
+                avbtool_path = '/usr/local/bin/avbtool.py'
+                cmd = ['python3', avbtool_path, 'verify_image', '--image', vbmeta_path, '--follow_chain_partitions']
                 
                 print(f"EXEC: {' '.join(cmd)}")
                 process = subprocess.run(cmd, capture_output=True, text=True)
