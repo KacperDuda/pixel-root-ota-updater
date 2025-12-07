@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
     git \
     jq \
     openssl \
+    pv \
+    bc \
     openjdk-17-jdk-headless \
     && rm -rf /var/lib/apt/lists/*
 
@@ -42,7 +44,7 @@ RUN echo "Pobieranie najnowszego Magiskboot..." \
     && rm -f magisk.apk
 
 # 5. Kopiowanie skryptów aplikacji i nadawanie uprawnień
-COPY pixel_automator.py patcher.sh entrypoint.sh google_verifier.py zip_extractor.py /app/
+COPY pixel_automator.py patcher.sh entrypoint.sh google_verifier.py zip_extractor.py zip_creator.py ui_utils.py /app/
 RUN chmod +x /app/*.sh /app/*.py
 
 # 6. Tworzenie katalogu wyjściowego

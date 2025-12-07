@@ -1,84 +1,173 @@
 
+import os
 import sys
 import subprocess
-import argparse
-import os
+import re
+from ui_utils import print_status, print_header, ProgressBar, Color, get_visual_hash
+
+AVBTOOL = "/usr/local/bin/avbtool.py"
+if not os.path.exists(AVBTOOL):
+    AVBTOOL = "avbtool.py"
+
+def log(msg):
+    print_status("VERIFY", "INFO", msg, Color.BLUE)
+
+def log_error(msg):
+    print_status("VERIFY", "ERROR", msg, Color.RED)
+
+def parse_chain(output):
+    """
+    Parses avbtool verify_image output to extract chain links AND signature details.
+    """
+    chain_info = {
+        'vbmeta_sig': None,
+        'vbmeta_key': None,
+        'chained_partitions': []
+    }
+    
+    # Extract vbmeta signature info
+    # Look for "vbmeta: Successfully verified SHA256_RSA4096..."
+    if "Successfully verified" in output:
+        alg_match = re.search(r"Successfully verified (\S+) vbmeta", output)
+        if alg_match:
+            chain_info['vbmeta_sig'] = alg_match.group(1)
+    
+    # Extract public key if shown
+    key_match = re.search(r"Public key \(sha1\):\s+([a-f0-9]+)", output)
+    if key_match:
+        chain_info['vbmeta_key'] = key_match.group(1)
+    
+    # Chained partition descriptors
+    blocks = output.split("Chained partition descriptor:")
+    for block in blocks[1:]:
+        info = {}
+        part_match = re.search(r"Partition Name:\s+(\w+)", block)
+        key_match = re.search(r"Public key \(sha1\):\s+([a-f0-9]+)", block)
+        
+        if part_match: info['partition'] = part_match.group(1)
+        if key_match: info['key_sha1'] = key_match.group(1)
+        
+        if info: chain_info['chained_partitions'].append(info)
+        
+    return chain_info
+
+def visualize_chain(chain_info):
+    print(f"\n{Color.BOLD}{Color.MAGENTA}=== Chain of Trust ==={Color.NC}")
+    print(f"{Color.RED}Google Root Key{Color.NC}")
+    print(f"{Color.GRAY}     |{Color.NC}")
+    print(f"{Color.GRAY}     v{Color.NC}")
+    
+    # vbmeta signature
+    sig_type = chain_info.get('vbmeta_sig', 'SHA256_RSA4096')
+    vbmeta_key = chain_info.get('vbmeta_key')
+    
+    print(f"{Color.GREEN}vbmeta.img{Color.NC} (Verified via {Color.CYAN}{sig_type}{Color.NC})")
+    
+    if vbmeta_key:
+        vhash = get_visual_hash(vbmeta_key.ljust(64, '0'))
+        print(f"{Color.GRAY}     ↳ Public Key: {Color.NC}{vbmeta_key[:16]}... {vhash}")
+    
+    chained = chain_info.get('chained_partitions', [])
+    
+    if not chained:
+        print(f"{Color.GRAY}     |{Color.NC}")
+        print(f"{Color.GRAY}     v{Color.NC}")
+        print(f"{Color.YELLOW}(No chained partitions found - Direct validation){Color.NC}")
+        return
+
+    for i, link in enumerate(chained):
+        is_last = (i == len(chained) - 1)
+        branch = "└──" if is_last else "├──"
+        
+        part = link.get('partition', 'unknown')
+        key_short = link.get('key_sha1', '???')[:8]
+        
+        vhash = get_visual_hash(link.get('key_sha1', '00').ljust(64, '0'))
+        
+        print(f"{Color.GRAY}     {branch} {Color.NC}{Color.CYAN}{part}{Color.NC}")
+        print(f"{Color.GRAY}     {'    ' if is_last else '|   '} ↳ Key: {Color.NC}{key_short}... {vhash}")
+
+def verify_vbmeta(path):
+    log(f"Verifying {os.path.basename(path)}...")
+    
+    if not os.path.exists(path):
+        log_error("vbmeta.img not found!")
+        return False
+
+    dest_dir = os.path.dirname(path)
+    cmd = f"python3 {AVBTOOL} verify_image --image \"{path}\" --follow_chain_partitions"
+    
+    try:
+        # Capture output for visualization
+        # We need to run this command in the directory where images are, so avbtool finds them?
+        # avbtool usually looks in CWD or same dir?
+        # It looks for files in the same directory as the image if --follow_chain_partitions is used.
+        # But let's be safe and CWD to that dir.
+        
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=dest_dir)
+        
+        # Show progress spinner while verifying
+        bar = ProgressBar("Verifying Chain", unit=' step')
+        output_accum = ""
+        
+        while True:
+            char = process.stdout.read(1)
+            if not char and process.poll() is not None:
+                break
+            if char:
+                output_accum += char.decode('utf-8', errors='ignore')
+                # Update spinner occasionally
+                if len(output_accum) % 100 == 0: bar.update(1)
+        
+        bar.finish()
+        
+        if process.returncode == 0:
+            print_status("VERIFY", "OK", "Signature verified successfully.", Color.GREEN)
+            
+            chain_info = parse_chain(output_accum)
+            visualize_chain(chain_info)
+            return True
+        else:
+            log_error("Signature Verification Failed!")
+            print(output_accum)
+            return False
+            
+    except Exception as e:
+        log_error(f"Execution error: {e}")
+        return False
 
 def main():
-    # The original script had an issue with argument parsing.
-    # This version correctly accepts a positional argument for the file path.
-    parser = argparse.ArgumentParser(description='Verify Google Factory Image.')
-    parser.add_argument('image_path', help='Path to the factory image zip file.')
-    args = parser.parse_args()
-
-    image_path = args.image_path
-    if not os.path.exists(image_path):
-        print(f"❌ ERROR: File not found at '{image_path}'")
+    if len(sys.argv) < 2:
+        print("Usage: google_verifier.py <directory_or_zip>")
         sys.exit(1)
 
-    # We need to extract vbmeta.img from the zip archive first.
-    # The verifier works on vbmeta.img, not the whole zip.
-    print(f"INFO: Unzipping '{image_path}' to find vbmeta.img...")
+    target_path = sys.argv[1]
     
-    # Create a temporary directory to extract to
-    import tempfile
-    import zipfile
+    print_header("GOOGLE SIGNATURE VERIFICATION")
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        vbmeta_path = None
-        try:
-            with zipfile.ZipFile(image_path, 'r') as zip_ref:
-                # We need to find the inner zip file, e.g., image-frankel-bd1a.250702.001.zip
-                inner_zip_name = None
-                for name in zip_ref.namelist():
-                    if 'image-' in name and name.endswith('.zip'):
-                        inner_zip_name = name
-                        break
-                
-                if not inner_zip_name:
-                    print("❌ ERROR: Could not find the inner image zip file.")
-                    sys.exit(1)
+    vbmeta_path = None
+    
+    if os.path.isdir(target_path):
+        # Scan for vbmeta.img
+        potential = os.path.join(target_path, "vbmeta.img")
+        if os.path.exists(potential):
+            vbmeta_path = potential
+        else:
+            # Maybe inside images subdirectory (extracted structure often has subdirs)
+            for root, dirs, files in os.walk(target_path):
+                if "vbmeta.img" in files:
+                    vbmeta_path = os.path.join(root, "vbmeta.img")
+                    break
+    
+    if not vbmeta_path:
+        # If passed a zip, extraction logic is handled by automator now.
+        # But for standalone usage compatibility:
+        log("No directory or vbmeta found. Assuming Zip not implemented here anymore.")
+        log_error("Please pass extracted workspace directory.")
+        sys.exit(1)
+        
+    if not verify_vbmeta(vbmeta_path):
+        sys.exit(1)
 
-                # Extract the inner zip
-                inner_zip_path = zip_ref.extract(inner_zip_name, path=temp_dir)
-                
-                # Now extract all images from the inner zip
-                with zipfile.ZipFile(inner_zip_path, 'r') as inner_zip_ref:
-                    inner_zip_ref.extractall(path=temp_dir)
-                    vbmeta_path = os.path.join(temp_dir, 'vbmeta.img')
-                    if not os.path.exists(vbmeta_path):
-                        print("❌ ERROR: vbmeta.img not found in the inner archive.")
-                        sys.exit(1)
-
-                print(f"INFO: Found vbmeta.img at {vbmeta_path}")
-
-                # Now, run avbtool verify_image.
-                # No --key is needed since the public key is embedded in vbmeta.
-                print("INFO: Running avbtool.py to verify vbmeta.img...")
-                avbtool_path = '/usr/local/bin/avbtool.py'
-                cmd = ['python3', avbtool_path, 'verify_image', '--image', vbmeta_path, '--follow_chain_partitions']
-                
-                print(f"EXEC: {' '.join(cmd)}")
-                process = subprocess.run(cmd, capture_output=True, text=True)
-
-                if process.returncode == 0:
-                    print("✅ Verification successful.")
-                    # The output of verify_image contains details, print them.
-                    print(process.stdout)
-                    sys.exit(0)
-                else:
-                    print("❌ ERROR: Verification failed!")
-                    print("STDOUT:", process.stdout)
-                    print("STDERR:", process.stderr)
-                    sys.exit(1)
-
-        except zipfile.BadZipFile:
-            print(f"❌ ERROR: '{image_path}' is not a valid zip file.")
-            sys.exit(1)
-        except Exception as e:
-            print(f"❌ An unexpected error occurred: {e}")
-            sys.exit(1)
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
