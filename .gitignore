@@ -1,4 +1,10 @@
 
 output/*
 
-pixel_*
+__pycache__
+
+*.bin
+*.zip
+*.img
+
+pixel_userdata_*

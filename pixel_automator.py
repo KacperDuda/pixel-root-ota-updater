@@ -527,6 +527,8 @@ def main():
         "output": {
             "filename": output_filename,
             "sha256": final_output_sha256,
+            "format": "flashable_update_zip",
+            "usage": f"fastboot update {output_filename}",
             "modifications": ["KernelSU Injection", "AVB Custom Signing"],
             "signed_by": os.path.basename(key_path)
         }
