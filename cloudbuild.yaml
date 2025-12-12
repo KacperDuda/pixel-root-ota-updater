@@ -16,17 +16,17 @@ steps:
         echo "Artifact Registry verified successfully."
   # 1. Pobierz ("Wypożycz") klucz z Secret Managera - REMOVED (Runtime Mount used instead)
   
-  # 1. Spróbuj pobrać poprzedni obraz (dla Cache'a)
+  # 1. Spróbuj pobrać poprzednie obrazy (dla Cache'a)
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
-    args: ['-c', 'docker pull ${_DOCKER_REPO_URL}/pixel-automator:latest || exit 0']
+    args: ['-c', 'docker pull ${_DOCKER_REPO_URL}/pixel-automator:latest || true; docker pull ${_DOCKER_REPO_URL}/pixel-automator:unstable || true']
 
   # 2. Zbuduj obraz jako :unstable
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
       '-t', '${_DOCKER_REPO_URL}/pixel-automator:unstable',
-      '--cache-from', '${_DOCKER_REPO_URL}/pixel-automator:latest',
+      '--cache-from', '${_DOCKER_REPO_URL}/pixel-automator:latest,${_DOCKER_REPO_URL}/pixel-automator:unstable',
       '.'
     ]
 
