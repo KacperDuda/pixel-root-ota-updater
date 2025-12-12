@@ -133,5 +133,34 @@ resource "google_cloudbuild_trigger" "push_to_main_trigger" {
     _BUCKET_NAME      = google_storage_bucket.release_bucket.name
     _CACHE_BUCKET_NAME = google_storage_bucket.ota_cache_bucket.name
     _DEVICE_CODENAME  = "frankel" 
+    _WEB_BUCKET_NAME  = google_storage_bucket.web_flasher_bucket.name
   }
+}
+
+# 6. Web Flasher Hosting
+resource "google_storage_bucket" "web_flasher_bucket" {
+  name          = "${var.gcp_project_id}-${var.github_repo_name}-web-flasher"
+  location      = "EU"
+  force_destroy = true
+  
+  website {
+    main_page_suffix = "index.html"
+    not_found_page   = "404.html"
+  }
+  
+  uniform_bucket_level_access = true
+}
+
+# Publiczny dostęp do strony WWW
+resource "google_storage_bucket_iam_member" "web_flasher_public" {
+  bucket = google_storage_bucket.web_flasher_bucket.name
+  role   = "roles/storage.objectViewer"
+  member = "allUsers"
+}
+
+# Uprawnienia dla Buildera do deployowania strony
+resource "google_storage_bucket_iam_member" "builder_web_writer" {
+  bucket = google_storage_bucket.web_flasher_bucket.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.builder_sa.email}"
 }

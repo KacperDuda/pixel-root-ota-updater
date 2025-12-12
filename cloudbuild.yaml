@@ -80,13 +80,24 @@ steps:
              echo "Uploading extracted images from $$EXTRACTED_DIR..."
              # Kopiujemy rekurencyjnie cały folder z obrazami
              gsutil cp -r "$$EXTRACTED_DIR" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/
+             
+             # 5. Generate latest.json for Web Flasher
+             # Using the PUBLIC url for the web flasher to access
+             PUBLIC_URL="https://storage.googleapis.com/${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/$${BASENAME}/init_boot.img"
+             echo "{\"date\":\"$$DATE\", \"id\":\"$$FILENAME\", \"image_url\":\"$$PUBLIC_URL\"}" > latest.json
+             gsutil cp latest.json gs://${_BUCKET_NAME}/latest.json
           fi
         fi
+
+  # 5. Deploy Web Flasher
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['rsync', '-r', 'web', 'gs://${_WEB_BUCKET_NAME}']
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'
   _BUCKET_NAME: ''      # Must be provided by the Trigger
   _CACHE_BUCKET_NAME: '' # Must be provided by the Trigger
+  _WEB_BUCKET_NAME: ''   # Must be provided by the Trigger
 
 timeout: '3600s' 
 options:
