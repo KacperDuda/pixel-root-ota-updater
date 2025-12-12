@@ -30,6 +30,18 @@ KEY_SEARCH_PATHS = [
 ]
 OUTPUT_DIR = "/app/output"
 
+def debug_paths():
+    log("🔍 Debugging Key Paths:")
+    if os.path.exists("/app/secrets"):
+        log(f"   /app/secrets exists. Contents: {os.listdir('/app/secrets')}")
+    else:
+        log("   /app/secrets does NOT exist.")
+    
+    if os.path.exists("/app"):
+         files = os.listdir("/app")
+         # Show only relevant or first few
+         log(f"   /app contents (partial): {files[:10]}")
+
 def download_gcs_file(bucket_name, blob_name, destination):
     log(f"☁️  Downloading from GCS: gs://{bucket_name}/{blob_name}")
     try:
@@ -138,6 +150,7 @@ def main():
         else: sys.exit(1)
     else:
         # Check predefined paths
+        debug_paths() # Debug directory structure
         for path in KEY_SEARCH_PATHS:
             if os.path.exists(path):
                 key_path = path
