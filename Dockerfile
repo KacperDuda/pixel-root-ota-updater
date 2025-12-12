@@ -21,30 +21,27 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # 2. Instalacja zależności Python (z requirements.txt dla lepszego cachowania)
-COPY requirements.txt .
+COPY src/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3. Instalacja narzędzi deweloperskich (AVBTOOL)
-# Ta warstwa zostanie zbuforowana, dopóki URL się nie zmieni
+# 3. Instalacja avbroot (do patchowania i podpisywania)
+ENV AVBROOT_VERSION=v3.4.0
+RUN curl -L -o /usr/bin/avbroot "https://github.com/chenxiaolong/avbroot/releases/download/${AVBROOT_VERSION}/avbroot-x86_64-unknown-linux-gnu" \
+    && chmod +x /usr/bin/avbroot
+
+# 4. Instalacja custota-tool (do generowania metadata json)
+ENV CUSTOTA_TOOL_VERSION=v5.0
+RUN curl -L -o /usr/bin/custota-tool "https://github.com/chenxiaolong/Custota/releases/download/${CUSTOTA_TOOL_VERSION}/custota-tool-x86_64-unknown-linux-gnu" \
+    && chmod +x /usr/bin/custota-tool
+
+# 4b. Instalacja avbtool (dla weryfikacji sygnatur Google)
 RUN curl -o /tmp/avbtool.b64 https://android.googlesource.com/platform/external/avb/+/refs/heads/master/avbtool.py?format=TEXT \
     && base64 -d /tmp/avbtool.b64 > /usr/local/bin/avbtool.py \
     && chmod +x /usr/local/bin/avbtool.py \
     && rm /tmp/avbtool.b64
 
-# 4. Instalacja MAGISKBOOT (dynamicznie pobierana najnowsza wersja)
-# UWAGA: Ta warstwa będzie rzadko cachowana, ponieważ URL do Magisk jest dynamiczny.
-# Jest to celowe, aby zawsze używać najnowszej wersji magiskboot.
-RUN echo "Pobieranie najnowszego Magiskboot..." \
-    && MAGISK_URL=$(curl -sL https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n 1) \
-    && echo "Znaleziono URL: $MAGISK_URL" \
-    && wget -q "$MAGISK_URL" -O magisk.apk \
-    && unzip -j magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp \
-    && mv /tmp/libmagiskboot.so /usr/local/bin/magiskboot \
-    && chmod +x /usr/local/bin/magiskboot \
-    && rm -f magisk.apk
-
 # 5. Kopiowanie skryptów aplikacji i nadawanie uprawnień
-COPY pixel_automator.py patcher.sh entrypoint.sh google_verifier.py zip_extractor.py zip_creator.py ui_utils.py /app/
+COPY src/ /app/
 RUN chmod +x /app/*.sh /app/*.py
 
 # 6. Tworzenie katalogu wyjściowego

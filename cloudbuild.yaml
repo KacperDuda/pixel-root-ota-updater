@@ -16,20 +16,41 @@ steps:
     env:
       - '_DEVICE_CODENAME=${_DEVICE_CODENAME}'
       - '_BUCKET_NAME=${_BUCKET_NAME}'
-    # Skrypt użyje domyślnego klucza cyber_rsa4096_private.pem z kroku 1
+    # Montujemy wolumen, aby pliki wynikowe były widoczne dla kolejnych kroków
+    volumes:
+      - name: 'build_output'
+        path: '/app/output'
+
+  # 4b. Upewnij się, że output jest dostępny (debug)
+  - name: 'ubuntu'
+    volumes:
+      - name: 'build_output'
+        path: '/workspace/output'
+    args: ['ls', '-la', '/workspace/output']
+
     
   # 4. Wyślij wyniki
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
+    volumes:
+      - name: 'build_output'
+        path: '/workspace/output'
     args:
       - '-c'
       - |
-        RESULT_FILE=$(find . -name "ksu_patched_*.zip" | head -n 1)
+        RESULT_FILE=$(find /workspace/output -name "ksu_patched_*.zip" | head -n 1)
         if [ ! -z "$RESULT_FILE" ]; then
           DATE=$(date +%Y%m%d)
           FILENAME=$(basename "$RESULT_FILE")
           gsutil cp "$RESULT_FILE" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME
-          gsutil cp build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/info.json
+          # Kopiujemy też .csig
+          if [ -f "$RESULT_FILE.csig" ]; then
+             gsutil cp "$RESULT_FILE.csig" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME.csig
+          fi
+          # Oraz JSON
+          if [ -f "/workspace/output/build_status.json" ]; then
+             gsutil cp /workspace/output/build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/info.json
+          fi
         fi
 
 substitutions:
