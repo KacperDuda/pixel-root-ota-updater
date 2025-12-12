@@ -274,6 +274,14 @@ resource "google_cloud_run_v2_job" "automator_job" {
           name       = "avb-key-volume"
           mount_path = "/app/secrets"
         }
+
+        # Zasoby (RAM/CPU) - Zwiększone dla OTA Patching
+        resources {
+          limits = {
+            memory = "4Gi"
+            cpu    = "2"
+          }
+        }
       }
 
       volumes {
