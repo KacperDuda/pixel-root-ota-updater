@@ -99,9 +99,19 @@ def main():
     print_header("PIXEL AUTO-PATCHER START")
 
     # 0. Fail-Fast Infrastructure Check
-    # Verify bucket immediately if configured
+    # Verify Release bucket
     bucket_env = os.environ.get('BUCKET_NAME') or os.environ.get('_BUCKET_NAME')
     verify_bucket_access(bucket_env)
+    
+    # Verify Cache bucket (if configured)
+    cache_bucket_env = os.environ.get('CACHE_BUCKET_NAME')
+    if cache_bucket_env:
+        try:
+             verify_bucket_access(cache_bucket_env)
+             log(f"📦 Cache Bucket detected: {cache_bucket_env}")
+        except:
+             log_error(f"⚠️  Cache Bucket configured but inaccessible: {cache_bucket_env}")
+             cache_bucket_env = None
 
     filename = None
     sha256 = None
@@ -177,8 +187,33 @@ def main():
                 used_cached_file = True
 
         if not used_cached_file:
-            # Must download
-            downloader.download_file(url, filename)
+            # TRY CLOUD CACHE FIRST
+            cloud_cache_hit = False
+            if cache_bucket_env and not args.local_file:
+                 log(f"🕵️  Checking Cloud Cache for: {filename}")
+                 # We simply check if the file exists in the bucket
+                 # It's usually the filename (no folder structure for cache for simplicity, or maybe OTA/?)
+                 # Let's use simple flat structure for now
+                 try:
+                     client = storage.Client()
+                     c_bucket = client.bucket(cache_bucket_env)
+                     blob = c_bucket.blob(filename)
+                     if blob.exists():
+                         log(f"⚡ CLOUD CACHE HIT! Downloading from GCS...")
+                         blob.download_to_filename(filename)
+                         cloud_cache_hit = True
+                         log("✅ Download from Cache complete.")
+                 except Exception as e:
+                     log(f"⚠️  Cache lookup failed: {e}")
+
+            if not cloud_cache_hit:
+                # Must download from Web
+                downloader.download_file(url, filename)
+                
+                # Upload to Cache for next time
+                if cache_bucket_env:
+                     log(f"📦 Populating Cloud Cache with {filename}...")
+                     upload_gcs_file(cache_bucket_env, filename, filename)
             
             # Verify download
             if scraped_sha256:

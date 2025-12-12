@@ -46,6 +46,22 @@ resource "google_storage_bucket" "release_bucket" {
   uniform_bucket_level_access = true
 }
 
+# 2. Bucket na Cache (Oryginalne pliki OTA)
+resource "google_storage_bucket" "ota_cache_bucket" {
+  name          = "${var.gcp_project_id}-${var.github_repo_name}-ota-cache"
+  location      = "EU"
+  force_destroy = true 
+  uniform_bucket_level_access = true
+  lifecycle_rule {
+    condition {
+      age = 30 # Czyść cache starszy niż 30 dni
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
 # Uprawnienia publiczne do odczytu (dla klientów OTA)
 resource "google_storage_bucket_iam_member" "release_bucket_public_viewer" {
   bucket = google_storage_bucket.release_bucket.name
@@ -53,7 +69,7 @@ resource "google_storage_bucket_iam_member" "release_bucket_public_viewer" {
   member = "allUsers"
 }
 
-# 2. Sekrety w Secret Manager
+# 3. Sekrety w Secret Manager
 resource "google_secret_manager_secret" "avb_private_key" {
   secret_id = "avb-private-key"
   replication {
@@ -62,7 +78,7 @@ resource "google_secret_manager_secret" "avb_private_key" {
 }
 # Note: Manually upload private key via gcloud/Console
 
-# 3. Service Account dla Buildera
+# 4. Service Account dla Buildera
 resource "google_service_account" "builder_sa" {
   account_id   = "${var.github_repo_name}-builder" # Dynamiczna nazwa konta
   display_name = "Cloud Build Service Account for ${var.github_repo_name}"
@@ -75,10 +91,17 @@ resource "google_project_iam_member" "builder_log_writer" {
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
-# Nadanie uprawnień dla Service Account do konkretnego bucketa
-resource "google_storage_bucket_iam_member" "builder_bucket_writer" {
+# Nadanie uprawnień dla Service Account do Release Bucketa
+resource "google_storage_bucket_iam_member" "builder_release_bucket_writer" {
   bucket = google_storage_bucket.release_bucket.name
-  role   = "roles/storage.objectAdmin" # Uprawnienia do zarządzania obiektami w tym buckecie
+  role   = "roles/storage.objectAdmin" 
+  member = "serviceAccount:${google_service_account.builder_sa.email}"
+}
+
+# Nadanie uprawnień dla Service Account do Cache Bucketa (zapis/odczyt)
+resource "google_storage_bucket_iam_member" "builder_cache_bucket_writer" {
+  bucket = google_storage_bucket.ota_cache_bucket.name
+  role   = "roles/storage.objectAdmin" 
   member = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
@@ -90,7 +113,7 @@ resource "google_secret_manager_secret_iam_member" "builder_private_key_accessor
   member    = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
-# 4. Cloud Build Trigger - uruchamia budowanie po pushu do `main`
+# 5. Cloud Build Trigger - uruchamia budowanie po pushu do `main`
 resource "google_cloudbuild_trigger" "push_to_main_trigger" {
   name     = "${var.github_repo_name}-push-to-main"
   location = "global" # Triggery Cloud Build są zasobem globalnym
@@ -107,7 +130,8 @@ resource "google_cloudbuild_trigger" "push_to_main_trigger" {
   }
 
   substitutions = {
-    _BUCKET_NAME     = google_storage_bucket.release_bucket.name
-    _DEVICE_CODENAME = "frankel" # Możesz to parametryzować jeśli chcesz
+    _BUCKET_NAME      = google_storage_bucket.release_bucket.name
+    _CACHE_BUCKET_NAME = google_storage_bucket.ota_cache_bucket.name
+    _DEVICE_CODENAME  = "frankel" 
   }
 }

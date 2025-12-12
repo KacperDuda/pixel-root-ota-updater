@@ -33,6 +33,7 @@ steps:
     env:
       - '_DEVICE_CODENAME=${_DEVICE_CODENAME}'
       - '_BUCKET_NAME=${_BUCKET_NAME}'
+      - 'CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME}'
     volumes:
       - name: 'build_output'
         path: '/app/output'
@@ -84,7 +85,8 @@ steps:
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'
-  _BUCKET_NAME: '' # Must be provided by the Trigger
+  _BUCKET_NAME: ''      # Must be provided by the Trigger
+  _CACHE_BUCKET_NAME: '' # Must be provided by the Trigger
 
 timeout: '3600s' 
 options:
