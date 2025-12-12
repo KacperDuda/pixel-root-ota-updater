@@ -13,7 +13,7 @@ except ImportError:
 # Local modules
 from ui_utils import print_header, print_status, log, log_error, Color, get_visual_hash
 import downloader
-import workspace
+import downloader
 import verifier
 import avb_patcher
 
@@ -164,18 +164,17 @@ def main():
         else:
             sha256 = verifier.calculate_sha256(abs_filename)
         
-    cached_output = workspace.check_smart_cache(sha256, key_hash)
+    # Smart Caching Check (moved from workspace)
+    cached_output = verifier.check_smart_cache(sha256, key_hash)
     if cached_output:
         print_status("SMART SKIP", "PASS", f"Output {cached_output} already exists for this input. Skipping build.", Color.GREEN)
         sys.exit(0)
 
-    # 4. Unpack
-    extracted_workspace = workspace.prepare_extracted_workspace(abs_filename)
-
-    # 5. Verification (In-Place)
-    if not verifier.verify_extracted_workspace(extracted_workspace, sha256):
-        log_error("Verification Failed!")
-        sys.exit(1)
+    # 4. Unpack & Verification - DEPRECATED / REMOVED
+    # Since we use avbroot with OTA images, unpacking is redundant.
+    # avbroot verifies the zip signature internally.
+    # We rely on the initial SHA256 check of the ZIP download.
+    log("ℹ️  Skipping legacy unpack/verify (avbroot handles integrity internally).")
 
     # 6. Patcher & Signing
     output_filename = f"ksu_patched_{os.path.basename(filename)}"

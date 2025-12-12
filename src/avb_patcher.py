@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 from ui_utils import print_status, Color, log_error, log
-from downloader import download_file
+
 
 EXTRACTED_CACHE_DIR = "/app/output/extracted_cache"
 
@@ -85,11 +85,15 @@ def run_avbroot_patch(filename, output_filename, key_path, avb_passphrase=None):
 def generate_custota_csig(output_filename, key_path):
     log("Generating Custota metadata...")
     try:
+         cert_path = key_path.replace(".pem", ".crt").replace(".key", ".crt")
+         if cert_path == key_path: cert_path = key_path + ".crt"
+         
          csig_path = f"{output_filename}.csig"
          subprocess.check_call([
              "custota-tool", "gen-csig",
              "--input", output_filename,
              "--key", key_path,
+             "--cert", cert_path,
              "--output", csig_path
          ])
          print_status("CUSTOTA", "SUCCESS", "Signature generated", Color.GREEN)

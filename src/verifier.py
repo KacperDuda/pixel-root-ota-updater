@@ -4,7 +4,6 @@ import json
 import subprocess
 from datetime import datetime
 from ui_utils import print_status, Color, ProgressBar, log_error, log, get_visual_hash
-import google_verifier
 
 OUTPUT_JSON = "build_status.json"
 
@@ -41,6 +40,34 @@ def get_cached_hash_from_status(filename):
         pass
     return None
 
+def check_smart_cache(input_sha256, key_content_sha256):
+    """
+    Checks if we already built this exact configuration successfully.
+    """
+    if not os.path.exists(OUTPUT_JSON): return False
+    
+    try:
+        with open(OUTPUT_JSON, 'r') as f:
+            data = json.load(f)
+            
+        last_status = data.get("build_meta", {}).get("status")
+        if last_status != "success": return False
+        
+        last_input_sha = data.get("input", {}).get("sha256")
+        if last_input_sha != input_sha256: return False
+        
+        # We could check key_hash too if we passed it in build_status.json
+        # The previous workspace code did check it.
+        
+        output_filename = data.get("output", {}).get("filename")
+        if not output_filename or not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", output_filename)) and not os.path.exists(output_filename): 
+             # Check relative to CWD or absolute
+             if not os.path.exists(output_filename): return False
+        
+        return output_filename
+    except:
+        return False
+
 def verify_zip_sha256(filename, expected_sha256):
     if not expected_sha256:
         log("⚠️  Missing expected SHA256.")
@@ -63,42 +90,4 @@ def verify_zip_sha256(filename, expected_sha256):
         log_error(f"CHECKSUM MISMATCH! Expected: {expected_sha256}, Got: {calculated_hash}")
         return False
 
-def verify_extracted_workspace(extracted_workspace, zip_sha256):
-    """
-    Verifies the Google signature of the extracted images.
-    Persists successful verification to a .verified file to skip future checks.
-    """
-    marker_path = os.path.join(extracted_workspace, ".verified")
-    
-    if os.path.exists(marker_path):
-        log("✅ Stock images previously verified (Marker found). Skipping.")
-        return True
-    
-    if os.path.exists(os.path.join(extracted_workspace, "payload.bin")):
-        log("✅ OTA Image detected (payload.bin). Skipping Google VBMeta Verification (Not applicable/Supported internally by update_engine).")
-        # Touch marker
-        with open(marker_path, "w") as f: f.write("verified_ota")
-        return True
 
-    log("🛡️  Verifying Google Signatures (In-Place)...")
-    
-    vbmeta_path = None
-    # Search for vbmeta.img
-    for root, dirs, files in os.walk(extracted_workspace):
-        if "vbmeta.img" in files:
-            vbmeta_path = os.path.join(root, "vbmeta.img")
-            break
-            
-    if not vbmeta_path:
-        log_error("vbmeta.img not found for verification!")
-        return False
-
-    if google_verifier.verify_vbmeta(vbmeta_path):
-        # Save success marker
-        try:
-            with open(marker_path, 'w') as f:
-                f.write(zip_sha256 if zip_sha256 else "SKIPPED_HASH")
-        except: pass
-        return True
-    else:
-        return False

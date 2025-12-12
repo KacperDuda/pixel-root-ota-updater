@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright
 from ui_utils import print_status, Color, ProgressBar, log_error, log
 
 TARGET_URL = "https://developers.google.com/android/ota"
-KSU_RELEASES_URL = "https://github.com/KernelSU-Next/KernelSU-Next/releases/latest"
+
 
 def get_latest_factory_image_data_headless(device):
     log(f"Starting headless browser for: {device}...")
@@ -141,34 +141,7 @@ def get_latest_factory_image_data_headless(device):
         browser.close()
         return latest_url, filename, expected_sha
 
-def get_latest_magisk_url():
-    """
-    Fetches the latest Magisk Release ZIP (v27.0+) URL using GitHub API.
-    """
-    log("Resolving latest Magisk version via API...")
-    # Official Magisk Repo
-    api_url = "https://api.github.com/repos/topjohnwu/Magisk/releases/latest"
-    
-    try:
-        r = requests.get(api_url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        
-        tag_name = data.get("tag_name", "unknown")
-        log(f"Latest Magisk tag: {tag_name}")
-        
-        for asset in data.get("assets", []):
-            name = asset.get("name", "")
-            # Looking for Magisk-vXX.X.apk (Magisk can be renamed to .zip)
-            if name.startswith("Magisk-v") and name.endswith(".apk"):
-                url = asset.get("browser_download_url")
-                log(f"Found Magisk APK (to be used as ZIP): {url}")
-                return url
-                
-    except Exception as e:
-        log_error(f"GitHub API failed: {e}")
-        
-    return None
+
 
 def download_file(url, filename):
     if os.path.exists(filename): return
