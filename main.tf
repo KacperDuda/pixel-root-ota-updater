@@ -106,4 +106,8 @@ resource "google_cloudbuild_trigger" "push_to_main_trigger" {
     }
   }
 
+  substitutions = {
+    _BUCKET_NAME     = google_storage_bucket.release_bucket.name
+    _DEVICE_CODENAME = "frankel" # Możesz to parametryzować jeśli chcesz
+  }
 }

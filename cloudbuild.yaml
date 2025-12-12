@@ -84,7 +84,7 @@ steps:
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'
-  _BUCKET_NAME: 'moj-pixel-bucket'
+  _BUCKET_NAME: '' # Must be provided by the Trigger
 
 timeout: '3600s' 
 options:

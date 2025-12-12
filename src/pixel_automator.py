@@ -239,15 +239,21 @@ def main():
         
         # Upload ZIP
         zip_blob = f"builds/{DEVICE_CODENAME}/{date_str}/{os.path.basename(output_filename)}"
-        upload_gcs_file(bucket_env, output_filename, zip_blob)
+        if not upload_gcs_file(bucket_env, output_filename, zip_blob):
+            log_error("Failed to upload ZIP file. Aborting.")
+            sys.exit(1)
         
         # Upload CSIG
         csig_file = f"{output_filename}.csig"
         if os.path.exists(csig_file):
-            upload_gcs_file(bucket_env, csig_file, f"{zip_blob}.csig")
+            if not upload_gcs_file(bucket_env, csig_file, f"{zip_blob}.csig"):
+                log_error("Failed to upload CSIG file. Aborting.")
+                sys.exit(1)
             
         # Upload JSON info
-        upload_gcs_file(bucket_env, OUTPUT_JSON, f"builds/{DEVICE_CODENAME}/{date_str}/info.json")
+        if not upload_gcs_file(bucket_env, OUTPUT_JSON, f"builds/{DEVICE_CODENAME}/{date_str}/info.json"):
+            log_error("Failed to upload JSON report. Aborting.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
