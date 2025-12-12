@@ -125,6 +125,16 @@ resource "google_project_service" "artifact_registry_api" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "cloud_scheduler_api" {
+  service            = "cloudscheduler.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "cloud_run_api" {
+  service            = "run.googleapis.com"
+  disable_on_destroy = false
+}
+
 # Cloud Build SA potrzebuje Storage Admin (dla starego GCR)
 resource "google_project_iam_member" "builder_gcr_admin" {
   project = var.gcp_project_id
@@ -137,6 +147,16 @@ resource "google_project_iam_member" "builder_ar_admin" {
   project = var.gcp_project_id
   role    = "roles/artifactregistry.admin"
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
+}
+
+# 3c. ActAs Permission (Kluczowe dla Cloud Run)
+# Cloud Build używa tego konta (builder_sa) do wykonania 'gcloud run jobs update'.
+# W specyfikacji Joba (google_cloud_run_v2_job) też podajemy 'service_account = builder_sa'.
+# Aby builder mógł "przypisać" to konto do Joba, musi mieć uprawnienie 'actAs' na samym sobie.
+resource "google_service_account_iam_member" "builder_act_as_self" {
+  service_account_id = google_service_account.builder_sa.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
 # 5. Repozytorium Docker w Artifact Registry
@@ -263,6 +283,10 @@ resource "google_cloud_scheduler_job" "daily_runner" {
   schedule    = "0 3 * * *" # 3:00 AM daily
   time_zone   = "Europe/Warsaw"
   region      = var.gcp_region
+
+  depends_on = [
+    google_project_service.cloud_scheduler_api,
+  ]
 
   http_target {
     # Cloud Run Job invocation
