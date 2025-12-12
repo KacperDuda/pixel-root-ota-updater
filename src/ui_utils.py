@@ -32,17 +32,29 @@ class ProgressBar:
         self.start_time = time.time()
         self.last_update_time = self.start_time
         
-        # Initial print
-        self._print_bar()
+        # Disable progress bar if not a TTY (e.g. Cloud Build logs)
+        # We prefer a clean log in production
+        self.enabled = sys.stdout.isatty() and not os.environ.get("CI")
+        
+        if self.enabled:
+            # Initial print
+            self._print_bar()
+        else:
+            # Simple log for production
+            print(f"{desc}...")
 
     def update(self, amount):
         self.processed += amount
+        if not self.enabled: return
+        
         current_time = time.time()
         if current_time - self.last_update_time > 0.1 or (self.total > 0 and self.processed >= self.total):
             self.last_update_time = current_time
             self._print_bar()
 
     def _print_bar(self):
+        if not self.enabled: return
+        
         elapsed = time.time() - self.start_time
         speed_str = "..."
         if elapsed > 0:
@@ -85,9 +97,10 @@ class ProgressBar:
         sys.stdout.flush()
 
     def finish(self):
-        self._print_bar()
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        if self.enabled:
+            self._print_bar()
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
 def print_status(component, status, msg, color=Color.NC):
     """
