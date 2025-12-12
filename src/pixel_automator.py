@@ -51,6 +51,40 @@ def upload_gcs_file(bucket_name, source_file, destination_blob_name):
         return False
 
 
+def upload_gcs_file(bucket_name, source_file, destination_blob_name):
+    log(f"☁️  Uploading to GCS: {source_file} -> gs://{bucket_name}/{destination_blob_name}")
+    try:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(destination_blob_name)
+        blob.upload_from_filename(source_file)
+        log("✅ Upload success")
+        return True
+    except Exception as e:
+        log_error(f"GCS Upload Failed: {e}")
+        return False
+
+def verify_bucket_access(bucket_name):
+    """
+    Fail-fast check to ensure bucket is accessible before downloading large files.
+    """
+    if not bucket_name or not storage:
+        return # Skip if no bucket configured (local mode) or no storage lib
+        
+    log(f"🔍 Checking access to GCS Bucket: {bucket_name}")
+    try:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        # Attempt to get bucket metadata - cheap call to verify existence and permissions
+        bucket.reload() 
+        log(f"✅ Bucket '{bucket_name}' verified.")
+    except Exception as e:
+        log_error(f"❌ CRITICAL failure accessing bucket '{bucket_name}'")
+        log_error(f"Reason: {e}")
+        log_error("Aborting build immediately to prevent resource waste.")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local-file', help='Local ZIP file')
@@ -62,6 +96,11 @@ def main():
     args = parser.parse_args()
 
     print_header("PIXEL AUTO-PATCHER START")
+
+    # 0. Fail-Fast Infrastructure Check
+    # Verify bucket immediately if configured
+    bucket_env = os.environ.get('BUCKET_NAME') or os.environ.get('_BUCKET_NAME')
+    verify_bucket_access(bucket_env)
 
     filename = None
     sha256 = None
