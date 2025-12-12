@@ -23,6 +23,7 @@ variable "github_repo_name" {
   default     = "pixel-root-ota-updater"
 }
 
+# Konfiguracja Terraform i Providera
 terraform {
   required_providers {
     google = {
@@ -32,13 +33,12 @@ terraform {
   }
 }
 
-# Konfiguracja Providera
 provider "google" {
   project = var.gcp_project_id
   region  = var.gcp_region
 }
 
-# 1. Bucket na gotowe obrazy i pliki tymczasowe
+# 1. Bucket na gotowe obrazy
 resource "google_storage_bucket" "release_bucket" {
   name          = "${var.gcp_project_id}-${var.github_repo_name}-release" # Dynamiczna nazwa bucketa
   location      = "EU"
@@ -53,30 +53,14 @@ resource "google_storage_bucket_iam_member" "release_bucket_public_viewer" {
   member = "allUsers"
 }
 
-# 2. Secret Manager na hasło do klucza prywatnego AVB
-resource "google_secret_manager_secret" "avb_passphrase" {
-  secret_id = "avb-key-passphrase"
-  replication {
-    auto {}
-  }
-}
-resource "google_secret_manager_secret_version" "avb_passphrase_initial_version" {
-  secret      = google_secret_manager_secret.avb_passphrase.id
-  secret_data = "bardzo_tajne_haslo_do_klucza_pk8" # Zmień lub ustaw ręcznie w konsoli
-  # WAŻNE: Nigdy nie trzymaj prawdziwych haseł w kodzie! Użyj zmiennych lub ustaw ręcznie.
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
+# 2. Sekrety w Secret Manager
 resource "google_secret_manager_secret" "avb_private_key" {
   secret_id = "avb-private-key"
   replication {
     auto {}
   }
 }
-# Note: We do NOT set secret_data here. User must upload it via gcloud/Console.
-
+# Note: Manually upload private key via gcloud/Console
 
 # 3. Service Account dla Buildera
 resource "google_service_account" "builder_sa" {
@@ -84,15 +68,18 @@ resource "google_service_account" "builder_sa" {
   display_name = "Cloud Build Service Account for ${var.github_repo_name}"
 }
 
-# Nadanie uprawnień dla Service Account na poziomie projektu
-resource "google_project_iam_member" "builder_storage_admin" {
-  project = var.gcp_project_id
-  role    = "roles/storage.admin" # Pełne uprawnienia do GCS w projekcie
+# Nadanie uprawnień dla Service Account do konkretnego bucketa
+resource "google_storage_bucket_iam_member" "builder_bucket_writer" {
+  bucket = google_storage_bucket.release_bucket.name
+  role   = "roles/storage.objectAdmin" # Uprawnienia do zarządzania obiektami w tym buckecie
   member = "serviceAccount:${google_service_account.builder_sa.email}"
 }
-resource "google_project_iam_member" "builder_secret_accessor" {
-  project   = var.gcp_project_id
-  role      = "roles/secretmanager.secretAccessor" # Dostęp do wszystkich sekretów
+
+# Nadanie uprawnień do odczytu konkretnych sekretów
+resource "google_secret_manager_secret_iam_member" "builder_private_key_accessor" {
+  project   = google_secret_manager_secret.avb_private_key.project
+  secret_id = google_secret_manager_secret.avb_private_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 

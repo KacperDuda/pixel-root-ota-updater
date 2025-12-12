@@ -8,3 +8,9 @@ __pycache__
 *.img
 
 pixel_userdata_*
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
