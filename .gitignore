@@ -14,3 +14,6 @@ pixel_userdata_*
 *.tfstate
 *.tfstate.backup
 *.tfvars
+
+.venv/
+*.log
