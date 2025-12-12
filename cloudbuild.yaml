@@ -55,30 +55,30 @@ steps:
       - '-c'
       - |
         RESULT_FILE=$(find /workspace/output -name "ksu_patched_*.zip" | head -n 1)
-        if [ ! -z "$RESULT_FILE" ]; then
+        if [ ! -z "$$RESULT_FILE" ]; then
           DATE=$(date +%Y%m%d)
-          FILENAME=$(basename "$RESULT_FILE")
+          FILENAME=$(basename "$$RESULT_FILE")
           # 1. Główny ZIP
-          gsutil cp "$RESULT_FILE" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME
+          gsutil cp "$$RESULT_FILE" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/$$FILENAME
           
           # 2. Sygnatura Custota
-          if [ -f "$RESULT_FILE.csig" ]; then
-             gsutil cp "$RESULT_FILE.csig" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME.csig
+          if [ -f "$$RESULT_FILE.csig" ]; then
+             gsutil cp "$$RESULT_FILE.csig" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/$$FILENAME.csig
           fi
           
           # 3. Raport JSON
           if [ -f "/workspace/output/build_status.json" ]; then
-             gsutil cp /workspace/output/build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/info.json
+             gsutil cp /workspace/output/build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/info.json
           fi
           
           # 4. Folder z obrazami (BOOT/INIT_BOOT + AVB Key)
-          BASENAME="${FILENAME%.*}"
-          EXTRACTED_DIR="/workspace/output/$BASENAME"
+          BASENAME="$${FILENAME%.*}"
+          EXTRACTED_DIR="/workspace/output/$$BASENAME"
           
-          if [ -d "$EXTRACTED_DIR" ]; then
-             echo "Uploading extracted images from $EXTRACTED_DIR..."
+          if [ -d "$$EXTRACTED_DIR" ]; then
+             echo "Uploading extracted images from $$EXTRACTED_DIR..."
              # Kopiujemy rekurencyjnie cały folder z obrazami
-             gsutil cp -r "$EXTRACTED_DIR" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/
+             gsutil cp -r "$$EXTRACTED_DIR" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/
           fi
         fi
 
