@@ -75,9 +75,10 @@ def verify_bucket_access(bucket_name):
     try:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
-        # Attempt to get bucket metadata - cheap call to verify existence and permissions
-        bucket.reload() 
-        log(f"✅ Bucket '{bucket_name}' verified.")
+        # Attempt to list 1 blob - this requires storage.objects.list (included in objectAdmin)
+        # whereas bucket.reload() requires storage.buckets.get (not included)
+        blobs = list(client.list_blobs(bucket_name, max_results=1))
+        log(f"✅ Bucket '{bucket_name}' verified (access ok).")
     except Exception as e:
         log_error(f"❌ CRITICAL failure accessing bucket '{bucket_name}'")
         log_error(f"Reason: {e}")
