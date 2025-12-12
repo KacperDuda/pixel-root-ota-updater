@@ -14,20 +14,8 @@ steps:
           exit 1
         fi
         echo "Artifact Registry verified successfully."
-  # 1. Pobierz ("Wypożycz") klucz z Secret Managera
-  # To zapewnia, że klucz istnieje. Jeśli nie (błąd 404/403), build tutaj PADNIE i nie uruchomi kontenera.
-  # Klucz trafia do wolumenu /workspace, który jest współdzielony i ulotny (znika po buildzie).
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args:
-      - 'secrets'
-      - 'versions'
-      - 'access'
-      - 'latest'
-      - '--secret=avb-private-key'
-      - '--out-file=cyber_rsa4096_private.pem'
-
-      - '--out-file=cyber_rsa4096_private.pem'
-
+  # 1. Pobierz ("Wypożycz") klucz z Secret Managera - REMOVED (Runtime Mount used instead)
+  
   # 1b. Spróbuj pobrać poprzedni obraz (dla Cache'a)
   # "|| exit 0" zapewnia, że błąd (np. brak obrazu przy pierwszym uruchomieniu) nie przerwie builda.
   - name: 'gcr.io/cloud-builders/docker'
