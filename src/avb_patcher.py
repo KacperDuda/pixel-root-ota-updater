@@ -20,8 +20,10 @@ def run_avbroot_patch(filename, output_filename, key_path, avb_passphrase=None):
         sys.exit(1)
     
     # Prepare keys and certs for avbroot v3.23+
-    cert_path = key_path.replace(".pem", ".crt").replace(".key", ".crt")
-    if cert_path == key_path: cert_path = key_path + ".crt"
+    # Write cert to /tmp/ because key_path directory might be read-only (Cloud Run Secret Volume)
+    cert_filename = os.path.basename(key_path).replace(".pem", ".crt").replace(".key", ".crt")
+    if cert_filename == os.path.basename(key_path): cert_filename += ".crt"
+    cert_path = os.path.join("/tmp", cert_filename)
     
     if not os.path.exists(cert_path):
         log(f"Generating OTA certificate from key: {cert_path}")
@@ -85,8 +87,9 @@ def run_avbroot_patch(filename, output_filename, key_path, avb_passphrase=None):
 def generate_custota_csig(output_filename, key_path):
     log("Generating Custota metadata...")
     try:
-         cert_path = key_path.replace(".pem", ".crt").replace(".key", ".crt")
-         if cert_path == key_path: cert_path = key_path + ".crt"
+         cert_filename = os.path.basename(key_path).replace(".pem", ".crt").replace(".key", ".crt")
+         if cert_filename == os.path.basename(key_path): cert_filename += ".crt"
+         cert_path = os.path.join("/tmp", cert_filename)
          
          csig_path = f"{output_filename}.csig"
          subprocess.check_call([
