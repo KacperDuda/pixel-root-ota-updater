@@ -29,7 +29,7 @@ steps:
         cp /workspace/cyber_rsa4096_private.pem /app/cyber_rsa4096_private.pem
         
         # Uruchamiamy
-        python3 pixel_automator.py
+        cd /app && python3 pixel_automator.py
     env:
       - '_DEVICE_CODENAME=${_DEVICE_CODENAME}'
       - '_BUCKET_NAME=${_BUCKET_NAME}'
