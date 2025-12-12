@@ -19,7 +19,7 @@ steps:
   # 1. Spróbuj pobrać poprzednie obrazy (dla Cache'a)
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
-    args: ['-c', 'docker pull ${_DOCKER_REPO_URL}/pixel-automator:latest || true; docker pull ${_DOCKER_REPO_URL}/pixel-automator:unstable || true']
+    args: ['-c', 'docker pull ${_DOCKER_REPO_URL}/pixel-automator:latest > /dev/null 2>&1 || true; docker pull ${_DOCKER_REPO_URL}/pixel-automator:unstable > /dev/null 2>&1 || true']
 
   # 2. Zbuduj obraz jako :unstable
   - name: 'gcr.io/cloud-builders/docker'
@@ -44,6 +44,7 @@ steps:
         gcloud run jobs update ${_REPO_NAME}-job \
           --image ${_DOCKER_REPO_URL}/pixel-automator:unstable \
           --region ${_REGION} \
+          --memory 8Gi --cpu 4 \
           --set-env-vars=_DEVICE_CODENAME=${_DEVICE_CODENAME} \
           --set-env-vars=_BUCKET_NAME=${_BUCKET_NAME} \
           --set-env-vars=CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME}
@@ -70,7 +71,8 @@ steps:
         echo "Promoting to Stable: ${_DOCKER_REPO_URL}/pixel-automator:latest"
         gcloud run jobs update ${_REPO_NAME}-job \
           --image ${_DOCKER_REPO_URL}/pixel-automator:latest \
-          --region ${_REGION}
+          --region ${_REGION} \
+          --memory 8Gi --cpu 4
 
   # 8. Deploy Web Flasher (tylko po sukcesie)
   - name: 'gcr.io/cloud-builders/gsutil'
