@@ -1,94 +1,61 @@
 # Pixel Firmware Automator
 
-This project automates the process of patching stock Google Pixel firmware images to include KernelSU and signing them with a custom AVB key. The entire workflow is designed to be executed within a CI/CD pipeline, specifically Google Cloud Build.
+This project automates the process of patching stock Google Pixel OTA images to include Magisk/KernelSU and signing them with a custom AVB key. The workflow is fully containerized and designed for Google Cloud Build, but supports local Docker execution.
 
-The process creates a modified update zip that can be flashed to a Pixel device with an unlocked bootloader, effectively rooting the device while maintaining a verifiable boot chain with a custom key.
+It creates a verifiable, signed OTA update zip that can be flashed via `adb sideload` or `fastboot update`.
 
-## Architecture Overview
+## 🛡️ Security Audit Summary (2025-12-07)
 
-The entire system is a fully automated DevOps pipeline, triggered hourly to check for new firmware releases.
+**Risk Level:** ⚠️ **LOW (with backup)**
+**Status:** ✅ **Safe for Daily Driver**
 
-The flow starts with the Cloud Scheduler triggering a Cloud Run Job, which performs the core logic, fetches the necessary security keys from Secret Manager, and stores the final patched ZIP file in GCS for the end-user to download.
+*   **Data Safety:** The patcher **NEVER** touches user data partitions (`/data`). It only modifies the `boot`/`init_boot` partition within the update package.
+*   **Verification:**
+    *   **Input:** Google Stock Images are SHA256 verified against Google's official headers.
+    *   **Output:** The final image is signed with your private AVB key.
+*   **Reversibility:** Flashing a stock OTA wipes the modifications, restoring the device to a lockable clean state (if needed).
 
-## Summary of Referenced Files
+**Requirements for Safety:**
+1.  **Bootloader Unlock:** Must stay unlocked (or be re-locked with custom keys - advanced).
+2.  **Backups:** Always recommended before flashing system updates.
 
-This is a summary of the files used by `Dockerfile` and `cloudbuild.yaml`.
+## 🚀 Quick Start (Local Docker)
 
-* **`cloudbuild.yaml`**: The main orchestrator for the Google Cloud Build pipeline. It defines the build steps, from fetching secrets to building the Docker container and uploading the final artifacts.
+The easiest way to run the patcher is via Docker. It handles all dependencies (avbroot, python, payload dumping).
 
-* **`Dockerfile`**: Defines the containerized environment where the patching process runs. It installs all necessary system dependencies (like `openjdk`, `zip`) and Python packages, and copies the application scripts.
-
-* **`entrypoint.sh`**: The main entrypoint for the Docker container. It executes the main Python script (`pixel_automator.py`) and handles the final output files.
-
-* **`pixel_automator.py`**: The core Python script that likely drives the automation. It is responsible for fetching the stock firmware and orchestrating the patching process by calling other scripts.
-
-* **`patcher.sh`**: A bash script that performs the core logic of patching the boot image. It unpacks the firmware, injects the KernelSU module (`kernelsu.ko`) into the ramdisk, and re-signs the image.
-
-* **`google_verifier.py`**: A Python script likely used to verify the authenticity of the downloaded stock firmware from Google's servers.
-
-* **`zip_extractor.py`**: A helper script to extract specific files from the nested zip archives found in Pixel firmware packages.
-
-* **`requirements.txt`**: A standard Python requirements file listing the necessary packages to be installed in the Docker container.
-
-* **`cyber_rsa4096_private.pem`**: The TEST AND TEMPORARY private key used by `avbtool` to sign the modified boot image. This file is fetched from a secure location (like Google Cloud Storage) during the build process.
-
-## Local Development & Testing
-
-The project can be run locally using Docker to simulate the Cloud Run environment. This requires building the Docker image first.
-
-### 1. Build the Docker Image
-
-Build the container image locally from the Dockerfile:
-
+### 1. Build the Image
+```bash
+docker build -t pixel_builder .
 ```
 
-docker build -t pixel\_builder .
-
+### 2. Run Patcher
+Mount your output directory and private key:
+```bash
+docker run --rm -it \
+    -v "$(pwd)/output:/app/output" \
+    -v "$(pwd)/cyber_rsa4096_private.pem:/app/cyber_rsa4096_private.pem" \
+    pixel_builder --skip-hash-check
 ```
 
-### 2. Run the Container Locally
+**What happens next:**
+1.  **Auto-Download:** Scrapes Google's OTA site for the latest image for your device (default: `frankel`).
+2.  **Smart Filtering:** Prioritizes EMEA/Global builds over carrier-specific ones (Verizon/Japan).
+3.  **Patching:** Uses `avbroot` to inject Magisk directly into `payload.bin` and resign the payload with your key.
+4.  **Result:** A closed, signed `ksu_patched_*.zip` ready for flashing.
 
-To run the full patching process locally, you need to mount the output directory and, crucially, the private key file into the container.
+## ☁️ Cloud Architecture
 
-**NOTE:** Ensure you have the `cyber_rsa4096_private.pem` file in your current directory for this command to succeed.
+*   **Cloud Build:** Orchestrates the pipeline.
+*   **Cloud Run:** executes the container.
+*   **Secret Manager:** Stores the private AVB key.
+*   **GCS (Storage):** Caches stock images and stores the final patched artifacts.
 
-```
+![Workflow](pixel_auto-patcher_architecture_v2.png)
 
-docker run --rm -it  
-\-v "$(pwd)/output:/app/output" \
--v "$(pwd)/cyber\_rsa4096\_private.pem:/app/cyber\_rsa4096\_private.pem"  
-pixel\_builder
+## 📂 File Structure
 
-```
-
-## Workflow Overview
-![Pixel Auto-Patcher Architecture](pixel_auto-patcher_architecture_v2.png)
-1. **Trigger**: The process is initiated by a Google Cloud Build trigger.
-
-2. **Setup**: Cloud Build fetches the `cyber_rsa4096_private.pem` key from a GCS bucket.
-
-3. **Build**: A Docker image is built using the provided `Dockerfile`. This image contains all the necessary tools (`magiskboot`, `avbtool`, Python environment) and scripts.
-
-4. **Execution**: The Docker container is run.
-
-   * `entrypoint.sh` starts the `pixel_automator.py` script.
-
-   * `pixel_automator.py` downloads the target stock firmware for a specific device.
-
-   * It then calls `patcher.sh` to modify the firmware.
-
-5. **Patching**: The `patcher.sh` script:
-
-   * Unpacks the initial firmware zip to find the inner `image-*.zip`.
-
-   * Extracts the `init_boot.img` or `boot.img`.
-
-   * Downloads the specified `kernelsu.ko` module.
-
-   * Uses `magiskboot` to unpack the boot image's ramdisk, add the `kernelsu.ko` module, and repack it.
-
-   * Uses `avbtool.py` to sign the newly modified boot image with the custom `cyber_rsa4096_private.pem` key.
-
-   * Repackages the modified boot image into a new firmware zip file.
-
-6. **Upload**: The final `ksu_patched_*.zip` artifact and a `build_status.json` file are uploaded back to a GCS bucket.
+*   `src/pixel_automator.py`: Main Orchestrator.
+*   `src/downloader.py`: Intelligent scraper for Google OTA images.
+*   `src/avb_patcher.py`: Wrapper for `avbroot` operations.
+*   `src/verifier.py`: Integrity checks.
+*   `Dockerfile`: Build environment.
