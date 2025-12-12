@@ -233,6 +233,10 @@ resource "google_cloud_run_v2_job" "automator_job" {
   name     = "${var.github_repo_name}-job"
   location = var.gcp_region
   
+  depends_on = [
+    google_project_service.cloud_run_api,
+  ]
+
   template {
     template {
       service_account = google_service_account.builder_sa.email
