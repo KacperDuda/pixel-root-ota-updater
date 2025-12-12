@@ -132,10 +132,10 @@ resource "google_project_iam_member" "builder_gcr_admin" {
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
-# ...ORAZ Artifact Registry Writer (dla nowego GCR/AR)
-resource "google_project_iam_member" "builder_ar_writer" {
+# ...ORAZ Artifact Registry Admin (Wymagane do utworzenia repozytorium przy pierwszym pushu)
+resource "google_project_iam_member" "builder_ar_admin" {
   project = var.gcp_project_id
-  role    = "roles/artifactregistry.writer"
+  role    = "roles/artifactregistry.admin"
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
