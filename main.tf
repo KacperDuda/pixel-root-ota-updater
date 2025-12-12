@@ -94,6 +94,10 @@ resource "google_secret_manager_secret_iam_member" "builder_private_key_accessor
 resource "google_cloudbuild_trigger" "push_to_main_trigger" {
   name     = "${var.github_repo_name}-push-to-main"
   location = "global" # Triggery Cloud Build są zasobem globalnym
+  filename = "cloudbuild.yaml" # Wskazanie pliku konfiguracyjnego w repozytorium
+  service_account = google_service_account.builder_sa.id
+
+  # Połączenie z repozytorium GitHub i definicja zdarzenia (push do main)
   github {
     owner = var.github_owner
     name  = var.github_repo_name
@@ -101,7 +105,5 @@ resource "google_cloudbuild_trigger" "push_to_main_trigger" {
       branch = "^main$"
     }
   }
-  # Plik z definicją kroków budowania w Twoim repozytorium
-  filename        = "cloudbuild.yaml"
-  service_account = google_service_account.builder_sa.id
+
 }
