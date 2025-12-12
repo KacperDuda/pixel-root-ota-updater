@@ -17,19 +17,19 @@ steps:
   # "|| exit 0" zapewnia, że błąd (np. brak obrazu przy pierwszym uruchomieniu) nie przerwie builda.
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
-    args: ['-c', 'docker pull gcr.io/$PROJECT_ID/pixel-automator:latest || exit 0']
+    args: ['-c', 'docker pull ${_DOCKER_REPO_URL}/pixel-automator:latest || exit 0']
 
   # 2. Zbuduj obraz (Docker) z wykorzystaniem Cache'a
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-      '-t', 'gcr.io/$PROJECT_ID/pixel-automator:latest',
-      '--cache-from', 'gcr.io/$PROJECT_ID/pixel-automator:latest',
+      '-t', '${_DOCKER_REPO_URL}/pixel-automator:latest',
+      '--cache-from', '${_DOCKER_REPO_URL}/pixel-automator:latest',
       '.'
     ]
 
   # 3. Uruchom Automator
-  - name: 'gcr.io/$PROJECT_ID/pixel-automator:latest'
+  - name: '${_DOCKER_REPO_URL}/pixel-automator:latest'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -103,12 +103,9 @@ steps:
   - name: 'gcr.io/cloud-builders/gsutil'
     args: ['rsync', '-r', 'web', 'gs://${_WEB_BUCKET_NAME}']
 
-  # Krok budowania obrazu Docker
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', '${_DOCKER_REPO_URL}/pixel-automator:latest', '.']
+
 
 images:
-  - 'gcr.io/$PROJECT_ID/pixel-automator:latest'
   - '${_DOCKER_REPO_URL}/pixel-automator:latest'
 
 substitutions:
