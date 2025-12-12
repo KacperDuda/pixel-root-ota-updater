@@ -9,7 +9,7 @@ steps:
       - 'access'
       - 'latest'
       - '--secret=avb-private-key'
-      - '--outfile=cyber_rsa4096_private.pem'
+      - '--out-file=cyber_rsa4096_private.pem'
 
   # 2. Zbuduj obraz (Docker) - BEZ KLUCZA
   # Dockerfile nie kopiuje klucza, bo go tam nie ma w kontekście (chyba że w workspace).
