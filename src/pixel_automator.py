@@ -3,7 +3,7 @@ import sys
 import json
 import argparse
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 
 try:
@@ -288,7 +288,7 @@ def main():
     build_info = {
         "build_meta": {
             "device": DEVICE_CODENAME,
-            "date": datetime.utcnow().isoformat(),
+            "date": datetime.now(timezone.utc).isoformat(),
             "status": status,
             "last_successful_build": now.strftime("%Y-%m-%d %H:%M:%S") if status == "success" else None,
             "mode": "Local File" if args.local_file else "Auto Download",
@@ -318,7 +318,7 @@ def main():
     bucket_env = os.environ.get('BUCKET_NAME') or os.environ.get('_BUCKET_NAME')
     if bucket_env and storage:
         log("🚀 Starting Cloud Upload...")
-        date_str = datetime.utcnow().strftime('%Y%m%d')
+        date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
         # Structure: builds/{device}/{date}/{filename}
         
         # Upload ZIP
