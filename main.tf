@@ -139,6 +139,19 @@ resource "google_project_iam_member" "builder_ar_admin" {
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
+# 5. Repozytorium Docker w Artifact Registry
+resource "google_artifact_registry_repository" "docker_repo" {
+  location      = var.gcp_region
+  repository_id = "${var.github_repo_name}-repo" # Nazwa repozytorium
+  description   = "Docker repository for ${var.github_repo_name}"
+  format        = "DOCKER"
+
+  # Upewnij się, że API jest włączone przed próbą utworzenia repozytorium
+  depends_on = [
+    google_project_service.artifact_registry_api
+  ]
+}
+
 # 5. Cloud Build Trigger - uruchamia budowanie po pushu do `main`
 resource "google_cloudbuild_trigger" "push_to_main_trigger" {
   name     = "${var.github_repo_name}-push-to-main"
@@ -159,6 +172,7 @@ resource "google_cloudbuild_trigger" "push_to_main_trigger" {
     _BUCKET_NAME      = google_storage_bucket.release_bucket.name
     _CACHE_BUCKET_NAME = google_storage_bucket.ota_cache_bucket.name
     _DEVICE_CODENAME  = "frankel" 
+    _DOCKER_REPO_URL  = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.docker_repo.repository_id}"
     _WEB_BUCKET_NAME  = google_storage_bucket.web_flasher_bucket.name
   }
 }

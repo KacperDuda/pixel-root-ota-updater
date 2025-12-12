@@ -103,8 +103,13 @@ steps:
   - name: 'gcr.io/cloud-builders/gsutil'
     args: ['rsync', '-r', 'web', 'gs://${_WEB_BUCKET_NAME}']
 
+  # Krok budowania obrazu Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', '${_DOCKER_REPO_URL}/pixel-automator:latest', '.']
+
 images:
   - 'gcr.io/$PROJECT_ID/pixel-automator:latest'
+  - '${_DOCKER_REPO_URL}/pixel-automator:latest'
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'
