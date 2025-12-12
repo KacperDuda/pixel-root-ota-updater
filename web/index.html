@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Command Center</title>
+    <!-- Google Fonts: Orbitron for headers, Rajdhani for body -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff;
+            --dark-bg: #050510;
+            --panel-bg: rgba(20, 20, 40, 0.8);
+            --border-color: #3333aa;
+        }
+        
+        body {
+            background-color: var(--dark-bg);
+            color: #e0e0e0;
+            font-family: 'Rajdhani', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-image: 
+                linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Orbitron', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin: 0;
+        }
+
+        header {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            color: var(--neon-blue);
+            text-shadow: 0 0 10px var(--neon-blue);
+            font-size: 1.5rem;
+        }
+
+        .status-badge {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+            padding: 5px 15px;
+            border-radius: 4px;
+            color: #888;
+            font-weight: bold;
+        }
+        
+        .status-badge.connected {
+            color: var(--neon-blue);
+            border-color: var(--neon-blue);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+        }
+
+        .main-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+            box-sizing: border-box;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Scanline effect */
+        .main-panel::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.1) 51%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .actions {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            background: transparent;
+            border: 2px solid var(--neon-blue);
+            color: var(--neon-blue);
+            padding: 15px 30px;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            position: relative;
+            z-index: 2;
+            flex: 1;
+        }
+
+        button:hover {
+            box-shadow: 0 0 20px var(--neon-blue);
+            background: rgba(0, 243, 255, 0.1);
+        }
+
+        button:disabled {
+            border-color: #555;
+            color: #555;
+            cursor: not-allowed;
+            box-shadow: none;
+            background: transparent;
+        }
+
+        button.flash-btn {
+            border-color: var(--neon-pink);
+            color: var(--neon-pink);
+        }
+
+        button.flash-btn:hover:not(:disabled) {
+            box-shadow: 0 0 20px var(--neon-pink);
+            background: rgba(255, 0, 255, 0.1);
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .info-box {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border: 1px solid #333;
+        }
+
+        .info-label {
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .info-value {
+            font-size: 1.2rem;
+            color: #fff;
+        }
+        
+        .info-value.dynamic {
+            color: var(--neon-blue);
+        }
+
+        #log-container {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            border: 1px solid #333;
+            height: 200px;
+            overflow-y: auto;
+            padding: 15px;
+            font-size: 0.9rem;
+            color: #0f0;
+        }
+
+        .log-entry { margin-bottom: 5px; }
+        .log-err { color: #f00; }
+        .log-warn { color: #ff0; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">PIXEL_COMMAND_CENTER</div>
+        <div id="connection-status" class="status-badge">DISCONNECTED</div>
+    </header>
+
+    <div class="main-panel">
+        <div class="info-grid">
+            <div class="info-box">
+                <div class="info-label">Connected Device</div>
+                <div id="device-name" class="info-value dynamic">--</div>
+            </div>
+            <div class="info-box">
+                <div class="info-label">Latest Cloud Build</div>
+                <div id="latest-build-date" class="info-value">Fetching...</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button id="connect-btn">🔌 Connect Device</button>
+            <button id="flash-btn" class="flash-btn" disabled>⚡ FLASH KERNEL</button>
+        </div>
+
+        <div class="info-box" style="margin-bottom: 20px;">
+             <div class="info-label">Target File</div>
+             <div id="target-file" class="info-value" style="font-size: 0.9rem; word-break: break-all;">--</div>
+        </div>
+
+        <div id="log-container">
+            <div class="log-entry">System initialized. Waiting for user input...</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <!-- Adb/Fastboot library could be imported here if we use a CDN, 
+         but for now we'll assume a local module or simple webusb implementation in app.js 
+         For simplicity in this demo, we'll mock the specific fastboot protocol parts or 
+         use a placeholder if the library is large. 
+         ACTUALLY, to make it work 'for real', we usually need `android-fastboot-client-library`.
+         We will assume the user might need to bundle it. 
+         For this implementation, I will write a simplified logic structure.
+    -->
+</body>
+</html>
