@@ -292,6 +292,13 @@ def main():
     except Exception as e:
         sys.exit(1)
 
+    # Clean up input file to save RAM/Disk space (Cloud Run Optimization)
+    try:
+        if os.path.exists(filename) and filename != output_filename:
+            log(f"🧹 freeing space: removing input file {filename}")
+            os.remove(filename)
+    except: pass
+
     # 7. Extract Images (for manual fastboot flash)
     # Extract to a subdirectory matching the zip name (minus extension)
     extraction_subdir = os.path.join(OUTPUT_DIR, os.path.splitext(os.path.basename(output_filename))[0])
