@@ -46,23 +46,7 @@ steps:
     volumes:
       - name: 'build_output'
         path: '/app/output'
-    # ... (reszta bez zmian)
 
-# ... (reszta pliku jest OK, tylko na końcu dodajemy images)
-
-images:
-  - 'gcr.io/$PROJECT_ID/pixel-automator:latest'
-  
-substitutions:
-  _DEVICE_CODENAME: 'frankel'
-  _BUCKET_NAME: ''      # Must be provided by the Trigger
-  _CACHE_BUCKET_NAME: '' # Must be provided by the Trigger
-  _WEB_BUCKET_NAME: ''   # Must be provided by the Trigger
-
-timeout: '3600s' 
-options:
-  machineType: 'E2_HIGHCPU_8'
-  logging: CLOUD_LOGGING_ONLY
 
   # 4b. Upewnij się, że output jest dostępny (debug)
   - name: 'ubuntu'
@@ -118,6 +102,9 @@ options:
   # 5. Deploy Web Flasher
   - name: 'gcr.io/cloud-builders/gsutil'
     args: ['rsync', '-r', 'web', 'gs://${_WEB_BUCKET_NAME}']
+
+images:
+  - 'gcr.io/$PROJECT_ID/pixel-automator:latest'
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'

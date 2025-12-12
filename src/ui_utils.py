@@ -38,7 +38,7 @@ class ProgressBar:
         
         if self.enabled:
             # Initial print
-            self._print_bar() 
+            self._print_bar()
         else:
             # Simple log for production
             print(f"{desc}...")
