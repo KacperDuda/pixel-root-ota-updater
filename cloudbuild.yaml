@@ -54,13 +54,13 @@ steps:
     args: ['run', 'jobs', 'execute', '${_REPO_NAME}-job', '--region', '${_REGION}', '--wait']
 
   # 6. PROMOCJA: Tagowanie unstable -> latest
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args: [
-      'container', 'images', 'add-tag',
-      '${_DOCKER_REPO_URL}/pixel-automator:unstable',
-      '${_DOCKER_REPO_URL}/pixel-automator:latest',
-      '--quiet'
-    ]
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker tag ${_DOCKER_REPO_URL}/pixel-automator:unstable ${_DOCKER_REPO_URL}/pixel-automator:latest
+        docker push ${_DOCKER_REPO_URL}/pixel-automator:latest
 
   # 7. Przywrócenie Joba na :latest (Dla harmonogramu)
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -80,9 +80,7 @@ steps:
 
 
 
-images:
-  - '${_DOCKER_REPO_URL}/pixel-automator:latest'
-  - '${_DOCKER_REPO_URL}/pixel-automator:unstable'
+
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'
