@@ -16,41 +16,63 @@ steps:
         echo "Artifact Registry verified successfully."
   # 1. Pobierz ("Wypożycz") klucz z Secret Managera - REMOVED (Runtime Mount used instead)
   
-  # 1b. Spróbuj pobrać poprzedni obraz (dla Cache'a)
-  # "|| exit 0" zapewnia, że błąd (np. brak obrazu przy pierwszym uruchomieniu) nie przerwie builda.
+  # 1. Spróbuj pobrać poprzedni obraz (dla Cache'a)
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args: ['-c', 'docker pull ${_DOCKER_REPO_URL}/pixel-automator:latest || exit 0']
 
-  # 2. Zbuduj obraz (Docker) z wykorzystaniem Cache'a
+  # 2. Zbuduj obraz jako :unstable
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-      '-t', '${_DOCKER_REPO_URL}/pixel-automator:latest',
+      '-t', '${_DOCKER_REPO_URL}/pixel-automator:unstable',
       '--cache-from', '${_DOCKER_REPO_URL}/pixel-automator:latest',
       '.'
     ]
 
-  # 3. Zaktualizuj Cloud Run Job (nowym obrazem)
+  # 3. Wypchnij obraz :unstable
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_DOCKER_REPO_URL}/pixel-automator:unstable']
+
+  # 4. Zaktualizuj Joba do wersji :unstable (w celu testów)
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "Updating Cloud Run Job: ${_REPO_NAME}-job with image: ${_DOCKER_REPO_URL}/pixel-automator:latest"
+        echo "Testing Candidate: ${_DOCKER_REPO_URL}/pixel-automator:unstable"
         gcloud run jobs update ${_REPO_NAME}-job \
-          --image ${_DOCKER_REPO_URL}/pixel-automator:latest \
+          --image ${_DOCKER_REPO_URL}/pixel-automator:unstable \
           --region ${_REGION} \
           --set-env-vars=_DEVICE_CODENAME=${_DEVICE_CODENAME} \
           --set-env-vars=_BUCKET_NAME=${_BUCKET_NAME} \
           --set-env-vars=CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME}
 
-  # 4. Uruchom Joba (Test poprawności po wdrożeniu)
-  # Opcjonalnie: można to pominąć i polegać na Schedulerze, ale warto sprawdzić czy działa od razu.
+  # 5. Uruchom testowo (Jeśli padnie, build się zatrzyma i nie nadpisze latest)
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['run', 'jobs', 'execute', '${_REPO_NAME}-job', '--region', '${_REGION}', '--wait']
 
-  # 5. Deploy Web Flasher
+  # 6. PROMOCJA: Tagowanie unstable -> latest
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: [
+      'container', 'images', 'add-tag',
+      '${_DOCKER_REPO_URL}/pixel-automator:unstable',
+      '${_DOCKER_REPO_URL}/pixel-automator:latest',
+      '--quiet'
+    ]
+
+  # 7. Przywrócenie Joba na :latest (Dla harmonogramu)
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Promoting to Stable: ${_DOCKER_REPO_URL}/pixel-automator:latest"
+        gcloud run jobs update ${_REPO_NAME}-job \
+          --image ${_DOCKER_REPO_URL}/pixel-automator:latest \
+          --region ${_REGION}
+
+  # 8. Deploy Web Flasher (tylko po sukcesie)
   - name: 'gcr.io/cloud-builders/gsutil'
     args: ['rsync', '-r', 'web', 'gs://${_WEB_BUCKET_NAME}']
 
@@ -58,6 +80,7 @@ steps:
 
 images:
   - '${_DOCKER_REPO_URL}/pixel-automator:latest'
+  - '${_DOCKER_REPO_URL}/pixel-automator:unstable'
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'
