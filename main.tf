@@ -68,6 +68,13 @@ resource "google_service_account" "builder_sa" {
   display_name = "Cloud Build Service Account for ${var.github_repo_name}"
 }
 
+# Nadanie uprawnień do pisania logów (Wymagane, aby widzieć output w Cloud Console)
+resource "google_project_iam_member" "builder_log_writer" {
+  project = var.gcp_project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.builder_sa.email}"
+}
+
 # Nadanie uprawnień dla Service Account do konkretnego bucketa
 resource "google_storage_bucket_iam_member" "builder_bucket_writer" {
   bucket = google_storage_bucket.release_bucket.name
