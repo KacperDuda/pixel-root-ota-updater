@@ -12,23 +12,60 @@ def run_avbroot_patch(filename, output_filename, key_path, avb_passphrase=None):
     """
     log("Passing to avbroot for patching and signing...")
     
-    ksu_apk_path = os.path.join(EXTRACTED_CACHE_DIR, "kernelsu.apk")
+    # Use pre-bundled Magisk from Docker image
+    magisk_path = "/usr/local/share/magisk.zip"
     
-    if not os.path.exists(ksu_apk_path):
-        log("Downloading KernelSU Next...")
-        ksu_url = "https://github.com/KernelSU-Next/KernelSU-Next/releases/download/v1.0.3/KernelSU_Next_v1.0.3_11386_Release.apk"
-        # Since downloader module needs to download to this path, ensuring directory exists
-        os.makedirs(os.path.dirname(ksu_apk_path), exist_ok=True)
-        download_file(ksu_url, ksu_apk_path)
+    if not os.path.exists(magisk_path):
+        log_error(f"CRITICAL: Pre-bundled Magisk not found at {magisk_path}")
+        sys.exit(1)
     
+    # Prepare keys and certs for avbroot v3.23+
+    cert_path = key_path.replace(".pem", ".crt").replace(".key", ".crt")
+    if cert_path == key_path: cert_path = key_path + ".crt"
+    
+    if not os.path.exists(cert_path):
+        log(f"Generating OTA certificate from key: {cert_path}")
+        try:
+            # Generate self-signed cert from private key (non-interactive)
+            subprocess.check_call([
+                "openssl", "req", "-new", "-x509", 
+                "-key", key_path, 
+                "-out", cert_path, 
+                "-days", "10000", 
+                "-subj", "/CN=PixelRootOTA"
+            ])
+        except Exception as e:
+            log_error(f"Failed to generate certificate: {e}")
+            sys.exit(1)
+
+    # Validation: avbroot --magisk expects a specific ZIP structure (assets/util_functions.sh)
+    # Magisk APKs are ZIPs themselves and usually valid.
+    import zipfile
+    try:
+        with zipfile.ZipFile(magisk_path, 'r') as z:
+            if "assets/util_functions.sh" not in z.namelist():
+                # Some Magisk versions or other root zips might differ, but official Magisk has this.
+                # If we switched to real Magisk, we expect this to pass now.
+                log_error("❌ ERROR: Provided file is not a standard Magisk Installer.")
+                log_error(f"File: {magisk_path}")
+                log_error("Missing 'assets/util_functions.sh'. Please ensure you are using official Magisk v27.0+.")
+                sys.exit(1)
+            else:
+                log("✅ Verified Magisk structure (assets/util_functions.sh found).")
+    except zipfile.BadZipFile:
+        log_error(f"❌ ERROR: File is not a valid ZIP: {magisk_path}")
+        sys.exit(1)
+
     try:
          cmd = [
              "avbroot", "ota", "patch",
-             "--input", filename, # Original ZIP
+             "--input", filename,
              "--output", output_filename,
-             "--key", key_path,
-             "--magisk", ksu_apk_path,
-             "--rootless", "false"
+             "--key-avb", key_path,
+             "--key-ota", key_path,
+             "--cert-ota", cert_path,
+             "--magisk", magisk_path,
+             "--magisk-preinit-device", "metadata"
          ]
          
          if avb_passphrase:

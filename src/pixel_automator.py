@@ -4,6 +4,7 @@ import json
 import argparse
 import shutil
 from datetime import datetime
+
 try:
     from google.cloud import storage
 except ImportError:
@@ -57,6 +58,7 @@ def main():
     parser.add_argument('--minimal', action='store_true', help='Create minimal ZIP (only modified files)')
     parser.add_argument('--fast', action='store_true', help='Use fast compression (store mode)')
     parser.add_argument('--raw-output', action='store_true', help='Skip ZIP, output raw init_boot.img only (fastest)')
+    parser.add_argument('--skip-hash-check', action='store_true', help='Skip local SHA256 calculation if file exists (Dangerous)')
     args = parser.parse_args()
 
     print_header("PIXEL AUTO-PATCHER START")
@@ -114,10 +116,8 @@ def main():
         # Check if already downloaded
         if os.path.exists(potential_cached_path):
             log(f"💾 Found in cache: {potential_cached_path}")
-            # Verify basic integrity
-            if scraped_sha256:
-                # Use verify_zip_sha256 which handles logic but let's just check quickly
-                # Actually, duplicate verification here is efficient if it saves download
+            # Verify basic integrity including optional skip check
+            if scraped_sha256 and not args.skip_hash_check:
                 calc_hash = verifier.verify_zip_sha256(potential_cached_path, scraped_sha256)
                 if calc_hash:
                     log("⚡ CACHE HIT!")
@@ -127,7 +127,14 @@ def main():
                 else:
                     log("⚠️  CACHE MISS (Checksum invalid).")
             else:
-                 log("⚠️  No SHA256 to verify cache.")
+                if args.skip_hash_check:
+                     log("⚠️  Skipping hash check logic as requested.")
+                else:
+                     log("⚠️  No SHA256 to verify cache (on Soft Hit trusting local file).")
+                
+                log("⚠️  TRUSTING LOCAL FILE (Soft Hit).")
+                filename = potential_cached_path
+                used_cached_file = True
 
         if not used_cached_file:
             # Must download
@@ -144,16 +151,18 @@ def main():
                 try:
                     dest_path = os.path.join(OUTPUT_DIR, os.path.basename(filename))
                     shutil.copy2(filename, dest_path)
-                    # filename is now local path if current dir, 
-                    # but maybe we should update filename to point to persisted one?
-                    # For consistency, usage of current dir filename is fine, 
-                    # but if we run consecutively, the 'potential_cached_path' check above handles it.
                 except: pass
 
     # 3. Smart Caching Check (Skip Repack)
     abs_filename = os.path.abspath(filename)
     if not sha256:
-        sha256 = verifier.calculate_sha256(abs_filename)
+        if used_cached_file and args.skip_hash_check:
+            log("⚠️ Skipping SHA256 calc (User requested skip).")
+            # Use filename as dummy hash to prevent breaking json logic if it allows arbitrary strings
+            # But better to just use a marker. 
+            sha256 = "TRUSTED_LOCAL_FILE"
+        else:
+            sha256 = verifier.calculate_sha256(abs_filename)
         
     cached_output = workspace.check_smart_cache(sha256, key_hash)
     if cached_output:

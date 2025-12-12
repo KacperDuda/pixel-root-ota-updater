@@ -31,19 +31,46 @@ def prepare_extracted_workspace(zip_path):
     
     zip_extractor.extract_with_progress(zip_path, temp_outer)
     
+    # Strategy for Factory vs OTA
+    # OTA images have 'payload.bin' directly inside top level or first subdir.
+    # Factory images have 'image-*.zip' nested.
+    
+    payload_bin = None
     inner_zip = None
+    
+    # Locate key files
     for root, dirs, files in os.walk(temp_outer):
+        if "payload.bin" in files:
+            payload_bin = root
+            break
         for f in files:
             if f.startswith("image-") and f.endswith(".zip"):
                 inner_zip = os.path.join(root, f)
                 break
-    
-    if not inner_zip:
-        log_error("Could not find inner image zip!")
-        import sys; sys.exit(1)
-        
+        if inner_zip: break
+
     os.makedirs(workspace_dir, exist_ok=True)
-    zip_extractor.extract_with_progress(inner_zip, workspace_dir)
+
+    if payload_bin:
+        # OTA Case: The files are already extracted (payload.bin etc)
+        # We just move/copy them to workspace_dir
+        # Actually since we extracted to temp_outer, 'payload_bin' is the path to the dir containing it.
+        # We can just move contents of that dir to workspace_dir
+        for item in os.listdir(payload_bin):
+            s = os.path.join(payload_bin, item)
+            d = os.path.join(workspace_dir, item)
+            if os.path.isdir(s): shutil.move(s, d)
+            else: shutil.move(s, d)
+        print_status("UNPACK", "INFO", "Detected OTA Image structure (payload.bin)", Color.CYAN)
+    
+    elif inner_zip:
+        # Factory Image Case
+        print_status("UNPACK", "INFO", "Detected Factory Image structure (nested zip)", Color.CYAN)
+        zip_extractor.extract_with_progress(inner_zip, workspace_dir)
+        
+    else:
+        log_error("Could not find inner image zip (Factory) or payload.bin (OTA)!")
+        import sys; sys.exit(1)
     
     shutil.rmtree(temp_outer)
     return workspace_dir

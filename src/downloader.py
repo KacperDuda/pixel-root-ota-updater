@@ -1,3 +1,4 @@
+
 import os
 import re
 import requests
@@ -5,7 +6,8 @@ import sys
 from playwright.sync_api import sync_playwright
 from ui_utils import print_status, Color, ProgressBar, log_error, log
 
-TARGET_URL = "https://developers.google.com/android/images"
+TARGET_URL = "https://developers.google.com/android/ota"
+KSU_RELEASES_URL = "https://github.com/KernelSU-Next/KernelSU-Next/releases/latest"
 
 def get_latest_factory_image_data_headless(device):
     log(f"Starting headless browser for: {device}...")
@@ -50,34 +52,123 @@ def get_latest_factory_image_data_headless(device):
                 except: pass
         except: pass
 
-        # Find Links
+        # Find Links using robust Table logic based on user provided DOM
         log(f"Searching links for {device}...")
-        try: page.wait_for_selector("a[href*='.zip']", timeout=30000)
-        except: log("⚠️  Timeout waiting for links table.")
+        try: 
+            # Wait for any row with ID starting with device name to appear
+            # Pattern: <tr id="frankel...">
+            page.wait_for_selector(f"tr[id^='{device}']", timeout=30000)
+        except: 
+            log("⚠️  Timeout waiting for specific device table rows.")
 
-        content = page.content()
-        link_regex = f'href="([^"]*?{device}[^"]*?\\.zip)"'
-        match = re.search(link_regex, content)
+        # Selector strategy:
+        # 1. Find the first row whose ID starts with the device name (usually the latest build if sorted, or we grep for latest)
+        # Actually Google lists them top-down. The first matching TR usually is the latest.
+        # But we specifically want the one that is NOT 'verizon' etc if possible, but for now let's take the first visible one
+        # or better, iterate and find the "latest" looking one.
+        # But simple start: First match.
         
-        if not match:
-            log_error(f"No image found for '{device}'")
+        try:
+            # Get all rows for device
+            rows = page.locator(f"tr[id^='{device}']")
+            count = rows.count()
+            
+            if count == 0:
+                log_error(f"No rows found for device '{device}'")
+                browser.close()
+                return None, None, None
+                
+            # Log found rows to help debug
+            log(f"Found {count} candidate rows for {device}.")
+            
+            # Strategy: Iterate BACKWARDS (latest usually at bottom)
+            # Filter for Europe (EMEA) or Global (no suffix/generic).
+            # Avoid: Verizon, Japan, Softbank unless user specified (defaulting to Generic/EMEA).
+            
+            target_row = None
+            
+            # Iterate range(count-1, -1, -1)
+            for i in range(count - 1, -1, -1):
+                row = rows.nth(i)
+                text = row.inner_text().lower()
+                
+                # Check region constraints
+                # Pref: EMEA > Global > Anything else not excluded
+                
+                # Exclusions
+                if "verizon" in text: continue
+                if "japan" in text: continue
+                if "softbank" in text: continue
+                
+                # If we are here, it's a potential candidate (EMEA or Global)
+                # Since we iterate backwards, the first one we find is the "Latest Safe Build".
+                
+                # Optional: If EMEA is strictly preferred over Global even if Global is newer (rare), 
+                # we might need more logic. Usually latest date wins.
+                # Assuming simple "Latest Valid" is good.
+                
+                target_row = row
+                break
+                
+            if not target_row:
+                log("⚠️  No filtered rows found, falling back to absolute last row (risky).")
+                target_row = rows.last
+                
+            row_id = target_row.get_attribute("id")
+            log(f"Selecting row (Latest/Region-safe): {row_id}")
+            log(f"Row Text: {target_row.inner_text().strip()}")
+
+            # Extract URL from the link in 2nd column (td index 1)
+            url_el = target_row.locator("td a") 
+            latest_url = url_el.get_attribute("href")
+            
+            # Extract SHA256 from 3rd column (td index 2)
+            sha_el = target_row.locator("td").last
+            expected_sha = sha_el.inner_text().strip()
+            
+            if not latest_url:
+                raise Exception("URL attribute missing")
+                
+            filename = latest_url.split('/')[-1]
+            log(f"Found URL: {latest_url}")
+            log(f"Found SHA256: {expected_sha}")
+            
+        except Exception as e:
+            log_error(f"Scraping failed: {e}")
             browser.close()
             return None, None, None
-        
-        latest_url = match.group(1)
-        filename = latest_url.split('/')[-1]
-        log(f"Found URL: {latest_url}")
-        
-        expected_sha = None
-        try:
-            row_handle = page.query_selector(f"//a[contains(@href, '{filename}')]/ancestor::tr")
-            if row_handle:
-                expected_sha = re.search(r'\\b[a-f0-9]{64}\\b', row_handle.inner_text()).group(0)
-                log(f"Found SHA256: {expected_sha}")
-        except: pass
 
         browser.close()
         return latest_url, filename, expected_sha
+
+def get_latest_magisk_url():
+    """
+    Fetches the latest Magisk Release ZIP (v27.0+) URL using GitHub API.
+    """
+    log("Resolving latest Magisk version via API...")
+    # Official Magisk Repo
+    api_url = "https://api.github.com/repos/topjohnwu/Magisk/releases/latest"
+    
+    try:
+        r = requests.get(api_url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        
+        tag_name = data.get("tag_name", "unknown")
+        log(f"Latest Magisk tag: {tag_name}")
+        
+        for asset in data.get("assets", []):
+            name = asset.get("name", "")
+            # Looking for Magisk-vXX.X.apk (Magisk can be renamed to .zip)
+            if name.startswith("Magisk-v") and name.endswith(".apk"):
+                url = asset.get("browser_download_url")
+                log(f"Found Magisk APK (to be used as ZIP): {url}")
+                return url
+                
+    except Exception as e:
+        log_error(f"GitHub API failed: {e}")
+        
+    return None
 
 def download_file(url, filename):
     if os.path.exists(filename): return
@@ -88,7 +179,9 @@ def download_file(url, filename):
         response.raise_for_status()
     except Exception as e:
         log_error(f"Connection error: {e}")
-        sys.exit(1)
+        # Orchestrator handles exit, but here we prefer to fail loud
+        # Or re-raise
+        raise e
 
     total_size = int(response.headers.get('content-length', 0))
     bar = ProgressBar(f"Downloading {filename}", total=total_size)

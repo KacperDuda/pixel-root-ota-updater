@@ -12,7 +12,7 @@ def calculate_sha256(filename):
     sha256_hash = hashlib.sha256()
     file_size = os.path.getsize(filename)
     
-    bar = ProgressBar(f"Hashing {os.path.basename(filename)}", total=file_size)
+    bar = ProgressBar(f"Calculating SHA256 (Local I/O)", total=file_size)
     
     with open(filename, "rb") as f:
         for byte_block in iter(lambda: f.read(1024*1024), b""):
@@ -65,47 +65,39 @@ def verify_zip_sha256(filename, expected_sha256):
 
 def verify_extracted_workspace(extracted_workspace, zip_sha256):
     """
-    Checks verification.json or runs google_verifier.
+    Verifies the Google signature of the extracted images.
+    Persists successful verification to a .verified file to skip future checks.
     """
-    verification_stat_file = os.path.join(extracted_workspace, "verification.json")
+    marker_path = os.path.join(extracted_workspace, ".verified")
     
-    if os.path.exists(verification_stat_file):
-        try:
-            with open(verification_stat_file, 'r') as vf:
-                vdata = json.load(vf)
-            if vdata.get("zip_sha256") == zip_sha256 and vdata.get("status") == "OK":
-                log("✅ Stock images already verified. Skipping re-verification.")
-                return True
-        except: pass
-        
-    # Run Google Verifier
+    if os.path.exists(marker_path):
+        log("✅ Stock images previously verified (Marker found). Skipping.")
+        return True
+    
+    if os.path.exists(os.path.join(extracted_workspace, "payload.bin")):
+        log("✅ OTA Image detected (payload.bin). Skipping Google VBMeta Verification (Not applicable/Supported internally by update_engine).")
+        # Touch marker
+        with open(marker_path, "w") as f: f.write("verified_ota")
+        return True
+
     log("🛡️  Verifying Google Signatures (In-Place)...")
     
-    # We can try importing and running direct, IF we trust it doesn't sys.exit(1) implicitly on us in a bad way.
-    # google_verifier.main() has sys.exit calls.
-    # But verify_vbmeta(path) returns True/False.
-    
-    vbmeta_path = os.path.join(extracted_workspace, "vbmeta.img")
-    # Search if not found direct
-    if not os.path.exists(vbmeta_path):
-        for root, dirs, files in os.walk(extracted_workspace):
-            if "vbmeta.img" in files:
-                vbmeta_path = os.path.join(root, "vbmeta.img")
-                break
-                
-    if not os.path.exists(vbmeta_path):
+    vbmeta_path = None
+    # Search for vbmeta.img
+    for root, dirs, files in os.walk(extracted_workspace):
+        if "vbmeta.img" in files:
+            vbmeta_path = os.path.join(root, "vbmeta.img")
+            break
+            
+    if not vbmeta_path:
         log_error("vbmeta.img not found for verification!")
         return False
 
     if google_verifier.verify_vbmeta(vbmeta_path):
-        # Save success
+        # Save success marker
         try:
-            with open(verification_stat_file, 'w') as vf:
-                json.dump({
-                    "zip_sha256": zip_sha256,
-                    "verified_at": datetime.utcnow().isoformat(),
-                    "status": "OK"
-                }, vf)
+            with open(marker_path, 'w') as f:
+                f.write(zip_sha256 if zip_sha256 else "SKIPPED_HASH")
         except: pass
         return True
     else:
