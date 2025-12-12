@@ -136,9 +136,15 @@ def main():
     if args.local_key:
         if os.path.exists(args.local_key): key_path = os.path.abspath(args.local_key)
         else: sys.exit(1)
-    elif os.path.exists(DEFAULT_DOCKER_KEY_PATH): key_path = DEFAULT_DOCKER_KEY_PATH
-    elif os.path.exists(DEFAULT_KEY_NAME): key_path = os.path.abspath(DEFAULT_KEY_NAME)
     else:
+        # Check predefined paths
+        for path in KEY_SEARCH_PATHS:
+            if os.path.exists(path):
+                key_path = path
+                log(f"🔑 Found key at: {key_path}")
+                break
+    
+    if not key_path:
         # Check Cloud Storage if configured
         bucket_env = os.environ.get('BUCKET_NAME') or os.environ.get('_BUCKET_NAME')
         if bucket_env and storage:
