@@ -69,6 +69,15 @@ resource "google_secret_manager_secret_version" "avb_passphrase_initial_version"
   }
 }
 
+resource "google_secret_manager_secret" "avb_private_key" {
+  secret_id = "avb-private-key"
+  replication {
+    auto {}
+  }
+}
+# Note: We do NOT set secret_data here. User must upload it via gcloud/Console.
+
+
 # 3. Service Account dla Buildera
 resource "google_service_account" "builder_sa" {
   account_id   = "${var.github_repo_name}-builder" # Dynamiczna nazwa konta

@@ -1,27 +1,40 @@
-# # cloudbuild.yaml
 steps:
-  # 1. Generuj klucz tymczasowy (CI/CD Safety)
-  # USER RULE: Oryginalny klucz jest TYLKO do użytku lokalnego. Chmura używa efemerycznego klucza testowego.
+  # 1. Pobierz ("Wypożycz") klucz z Secret Managera
+  # To zapewnia, że klucz istnieje. Jeśli nie (błąd 404/403), build tutaj PADNIE i nie uruchomi kontenera.
+  # Klucz trafia do wolumenu /workspace, który jest współdzielony i ulotny (znika po buildzie).
   - name: 'gcr.io/cloud-builders/gcloud'
-    entrypoint: 'bash'
     args:
-      - '-c'
-      - |
-        echo "⚠️  SECURITY NOTICE: Generating Ephemeral RSA Key for CI/CD Build..."
-        openssl genrsa -out cyber_rsa4096_private.pem 4096
-        echo "✅ Ephemeral Key Generated. Artifacts will be signed with this TEMPORARY key."
-        echo "❌ DO NOT FLASH THESE ARTIFACTS TO A LOCKED DEVICE EXPECTING THE PRODUCTION KEY."
+      - 'secrets'
+      - 'versions'
+      - 'access'
+      - 'latest'
+      - '--secret=avb-private-key'
+      - '--outfile=cyber_rsa4096_private.pem'
 
-  # 2. Zbuduj obraz (Docker)
+  # 2. Zbuduj obraz (Docker) - BEZ KLUCZA
+  # Dockerfile nie kopiuje klucza, bo go tam nie ma w kontekście (chyba że w workspace).
+  # Ale lepiej uważać: Jeśli 'cyber_rsa4096_private.pem' leży w root, 'COPY src/ .' może go pominąć (bo src/),
+  # ale upewnijmy się, że Dockerfile nie ma 'COPY . .'
+  # Mój Dockerfile miał 'COPY src/ /app/'. Bezpiecznie.
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'pixel-automator', '.']
 
   # 3. Uruchom Automator
   - name: 'pixel-automator'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Przenosimy klucz z workspace do miejsca, gdzie skrypt go szuka
+        cp /workspace/cyber_rsa4096_private.pem /app/cyber_rsa4096_private.pem
+        
+        # Uruchamiamy
+        python3 pixel_automator.py
     env:
       - '_DEVICE_CODENAME=${_DEVICE_CODENAME}'
       - '_BUCKET_NAME=${_BUCKET_NAME}'
-    # Montujemy wolumen, aby pliki wynikowe były widoczne dla kolejnych kroków
+    # Secret Manager dla HASŁA (zmienna środowiskowa)
+    secretEnv: ['AVB_PASSPHRASE']
     volumes:
       - name: 'build_output'
         path: '/app/output'
@@ -78,3 +91,8 @@ substitutions:
 timeout: '3600s' 
 options:
   machineType: 'E2_HIGHCPU_8'
+
+availableSecrets:
+  secretManager:
+  - versionName: projects/$PROJECT_ID/secrets/avb-key-passphrase/versions/latest
+    env: 'AVB_PASSPHRASE'
