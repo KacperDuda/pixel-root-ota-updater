@@ -184,7 +184,14 @@ def main():
     except Exception as e:
         sys.exit(1)
 
-    # 7. Custota
+    # 7. Extract Images (for manual fastboot flash)
+    # Extract to a subdirectory matching the zip name (minus extension)
+    extraction_subdir = os.path.join(OUTPUT_DIR, os.path.splitext(os.path.basename(output_filename))[0])
+    os.makedirs(extraction_subdir, exist_ok=True)
+    
+    avb_patcher.extract_patched_boot_images(output_filename, extraction_subdir)
+
+    # 8. Custota
     avb_patcher.generate_custota_csig(output_filename, key_path)
     
     # 8. Report

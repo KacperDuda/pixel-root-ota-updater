@@ -1,11 +1,16 @@
 # # cloudbuild.yaml
 steps:
-  # 1. Pobierz klucz prywatny
-  - name: 'gcr.io/cloud-builders/gsutil'
+  # 1. Generuj klucz tymczasowy (CI/CD Safety)
+  # USER RULE: Oryginalny klucz jest TYLKO do użytku lokalnego. Chmura używa efemerycznego klucza testowego.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
     args:
       - '-c'
       - |
-        gsutil cp gs://${_BUCKET_NAME}/keys/cyber_rsa4096_private.pem .
+        echo "⚠️  SECURITY NOTICE: Generating Ephemeral RSA Key for CI/CD Build..."
+        openssl genrsa -out cyber_rsa4096_private.pem 4096
+        echo "✅ Ephemeral Key Generated. Artifacts will be signed with this TEMPORARY key."
+        echo "❌ DO NOT FLASH THESE ARTIFACTS TO A LOCKED DEVICE EXPECTING THE PRODUCTION KEY."
 
   # 2. Zbuduj obraz (Docker)
   - name: 'gcr.io/cloud-builders/docker'
@@ -42,14 +47,27 @@ steps:
         if [ ! -z "$RESULT_FILE" ]; then
           DATE=$(date +%Y%m%d)
           FILENAME=$(basename "$RESULT_FILE")
+          # 1. Główny ZIP
           gsutil cp "$RESULT_FILE" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME
-          # Kopiujemy też .csig
+          
+          # 2. Sygnatura Custota
           if [ -f "$RESULT_FILE.csig" ]; then
              gsutil cp "$RESULT_FILE.csig" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/$FILENAME.csig
           fi
-          # Oraz JSON
+          
+          # 3. Raport JSON
           if [ -f "/workspace/output/build_status.json" ]; then
              gsutil cp /workspace/output/build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/info.json
+          fi
+          
+          # 4. Folder z obrazami (BOOT/INIT_BOOT + AVB Key)
+          BASENAME="${FILENAME%.*}"
+          EXTRACTED_DIR="/workspace/output/$BASENAME"
+          
+          if [ -d "$EXTRACTED_DIR" ]; then
+             echo "Uploading extracted images from $EXTRACTED_DIR..."
+             # Kopiujemy rekurencyjnie cały folder z obrazami
+             gsutil cp -r "$EXTRACTED_DIR" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$DATE/
           fi
         fi
 

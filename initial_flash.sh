@@ -14,13 +14,26 @@ NC='\033[0m' # No Color
 
 echo -e "${CYAN}=== Pixel Initial Flash Helper ===${NC}"
 
-# 1. Find the patched file
-ZIP_FILE=$(ls -t "$OUTPUT_DIR"/ksu_patched_*.zip 2>/dev/null | head -n 1)
+# 1. Find the# 3. Detect Firmware
+ZIP_FILE=$(find "$OUTPUT_DIR" -maxdepth 1 -name "ksu_patched_*.zip" | head -n 1)
 
 if [ -z "$ZIP_FILE" ]; then
-    echo -e "${RED}❌ Error: No patched file found in $OUTPUT_DIR!${NC}"
+    echo "No patched firmware found in $OUTPUT_DIR!"
     echo "Please run the builder first."
     exit 1
+fi
+
+FILENAME=$(basename "$ZIP_FILE")
+BASENAME="${FILENAME%.*}"
+EXTRACTED_DIR="$OUTPUT_DIR/$BASENAME"
+
+echo "📁 Found Firmware: $ZIP_FILE"
+if [ -d "$EXTRACTED_DIR" ]; then
+    echo "📂 Found Extracted Images: $EXTRACTED_DIR"
+else
+    echo "⚠️  Extracted images directory not found: $EXTRACTED_DIR"
+    # Fallback to output root just in case old build
+    EXTRACTED_DIR="$OUTPUT_DIR"
 fi
 
 echo -e "${GREEN}📁 Found Firmware: $ZIP_FILE${NC}"
@@ -133,23 +146,121 @@ if [ "$UNLOCKED" == "no" ]; then
     fi
 fi
 
-# 6. Flash Warning
+# 6. Flash Selection & Execution
 echo -e "${CYAN}--- READY TO FLASH ---${NC}"
-echo "File: $ZIP_FILE"
 echo "Target: $PRODUCT"
 
-if ! confirm_action "Start Flashing (fastboot update)? This process modifies your boot partition." "N"; then
-    echo "Aborted by user."
-    exit 0
+# Search for extracted images
+INIT_BOOT_IMG=$(ls "$OUTPUT_DIR"/init_boot.img 2>/dev/null)
+BOOT_IMG=$(ls "$OUTPUT_DIR"/boot.img 2>/dev/null)
+AVB_KEY_BIN=$(ls "$OUTPUT_DIR"/avb_pkmd.bin 2>/dev/null)
+
+# 6. Flash Strategy: Flash All Available Images
+echo -e "\n${CYAN}--- FLASHING PROCESS ---${NC}"
+
+# Helper function to flash if file exists
+flash_if_exists() {
+    local part=$1
+    local file="$EXTRACTED_DIR/$1.img"
+    if [ -f "$file" ]; then
+        echo -e "Flashing ${GREEN}$part${NC}..."
+        fastboot flash "$part" "$file"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Failed to flash $part${NC}"
+            read -t 60 -p "Continue anyway? (y/N) " CONFIRM
+            if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then exit 1; fi
+        fi
+    fi
+}
+
+# 6a. Flash Static Partitions (Bootloader Mode)
+echo -e "${YELLOW}Phase 1: Static Partitions (Bootloader)${NC}"
+
+# Priority: init_boot & boot (Rooted)
+INIT_BOOT_IMG="$EXTRACTED_DIR/init_boot.img"
+BOOT_IMG="$EXTRACTED_DIR/boot.img"
+AVB_KEY_BIN="$EXTRACTED_DIR/avb_pkmd.bin"
+
+# 6a. Flash AVB Key (Critical for Locking)
+if [ -f "$AVB_KEY_BIN" ]; then
+    echo -e "Found Custom AVB Key: ${YELLOW}$AVB_KEY_BIN${NC}"
+    echo "This key is REQUIRED if you plan to LOCK the bootloader."
+    
+    if confirm_action "Flash Custom AVB Key (avb_custom_key)?" "N"; then
+        echo -e "${GREEN}🚀 Flashing avb_custom_key...${NC}"
+        
+        # Erasing first improves reliability on some Pixels
+        echo "Erasing old key..."
+        fastboot erase avb_custom_key
+        
+        fastboot flash avb_custom_key "$AVB_KEY_BIN"
+        
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Key Flash Failed!${NC}"
+            # Don't exit, might still want to flash images for unlocked use
+        else
+            echo "Key flashed successfully."
+        fi
+    fi
+    echo ""
 fi
 
-# 7. Flash
-echo -e "${GREEN}🚀 Flashing started...${NC}"
-fastboot update "$ZIP_FILE" --skip-reboot
+if [ -f "$INIT_BOOT_IMG" ]; then
+    echo -e "Found patched: ${GREEN}init_boot.img${NC} (Root)"
+    flash_if_exists "init_boot"
+fi
 
-FLASH_STATUS=$?
-if [ $FLASH_STATUS -ne 0 ]; then
-    echo -e "${RED}❌ Flashing Failed!${NC}"
+# Flash other static images found in extraction
+# Order matters less here, but usually:
+flash_if_exists "boot"
+flash_if_exists "vendor_boot"
+flash_if_exists "dtbo"
+flash_if_exists "pvmfw"
+flash_if_exists "vbmeta"
+flash_if_exists "vbmeta_system"
+flash_if_exists "vbmeta_vendor"
+
+# 6b. Flash Dynamic Partitions (FastbootD Mode)
+# Check if dynamic partitions exist
+SYSTEM_IMG="$EXTRACTED_DIR/system.img"
+VENDOR_IMG="$EXTRACTED_DIR/vendor.img"
+
+if [ -f "$SYSTEM_IMG" ] || [ -f "$VENDOR_IMG" ]; then
+    echo -e "\n${YELLOW}Phase 2: Dynamic Partitions (System, Vendor, Product...)${NC}"
+    echo "These partitions require Userspace Fastboot (FastbootD)."
+    
+    if confirm_action "Flash Dynamic Partitions? (Full OS Update)" "N"; then
+        echo "Rebooting to FastbootD..."
+        fastboot reboot fastboot
+        echo "Waiting for FastbootD..."
+        sleep 10
+        
+        # Verify we are in fastbootd?
+        # fastboot getvar is-userspace should be yes
+        
+        flash_if_exists "system"
+        flash_if_exists "system_ext"
+        flash_if_exists "product"
+        flash_if_exists "vendor"
+        flash_if_exists "vendor_dlkm"
+        flash_if_exists "system_dlkm"
+        
+        echo -e "${GREEN}Dynamic Partitions Flashed.${NC}"
+        
+        # Reboot back to bootloader for final checks or direct to system?
+        # Usually direct to system is fine, but our script logic continues.
+        # Let's stay in fastbootd or reboot?
+        # If we reboot, we exit script flow.
+        # But we haven't done "Post-Flash Action" (Locking check).
+        # Locking verification logic expects us to ideally reboot to system.
+        # So we can proceed.
+    else
+        echo "Skipping Dynamic Partitions."
+    fi
+fi
+
+if [ ! -f "$INIT_BOOT_IMG" ] && [ ! -f "$BOOT_IMG" ]; then
+    echo "No boot images found? Check output directory."
     exit 1
 fi
 
@@ -157,28 +268,41 @@ echo -e "${GREEN}✅ Flashing Complete!${NC}"
 echo "Waiting ${SLEEP_TIME}s..."
 sleep $SLEEP_TIME
 
-# 8. Lock Bootloader Prompt (Only if custom AVB key is involved)
-# Note: For custom keys, locking is safe ONLY if the custom key is verified. 
-# Since we just verified and flashed, it generally should be fine IF the user flashed the avb_custom_key before (which avbroot ota usually handles or requires separate step).
-# WARNING: avbroot ota update zip does NOT flash the AVB Public Key to the device's vbmeta public key partition usually?
-# Actually, 'fastboot update' updates the images. 
-# BUT: To lock bootloader with custom keys, you must have flashed the custom public key to the device first!
-# Since this script assumes 'fastboot update', checking if we need to warn about AVB key.
+# 8. Post-Flash Action (Test vs Lock)
+echo -e "${CYAN}--- POST-FLASH ACTION ---${NC}"
+echo -e "You have two choices:"
+echo -e "1. ${GREEN}REBOOT (Recommended)${NC} - Verify the system boots and works."
+echo -e "2. ${RED}LOCK BOOTLOADER${NC} - Only do this if you have ALREADY verified a successful boot with this key."
 
-echo -e "${YELLOW}🔒 Bootloader Locking Check${NC}"
-echo -e "IMPORTANT: You should ONLY lock the bootloader if you have accurately flashed the AVB Custom Key previously."
-echo -e "If you lock without the correct key, you will BRICK the device."
+echo -e "${YELLOW}Risk Warning:${NC} Locking without verifying boot can BRICK the device if the key is wrong."
+echo -e "If this is your first time flashing this key/ROM, choose REBOOT."
 
-if confirm_action "Do you want to LOCK the bootloader now?" "N"; then
-    echo "Running: fastboot flashing lock"
-    fastboot flashing lock
-    echo -e "${CYAN}Please confirm on the device screen!${NC}"
-    read -p "Press Enter after locking is done..."
+echo -e "${CYAN}Choose Action:${NC}"
+echo "  [R] Reboot to System (Default)"
+echo "  [L] Lock Bootloader (Advanced)"
+read -t 60 -p "Enter choice [R/L]: " ACTION
+ACTION=${ACTION:-R} # Default to Reboot
+
+if [[ "$ACTION" =~ ^[Ll]$ ]]; then
+    # Locking Flow
+    echo -e "${RED}🔒 You chose to LOCK the bootloader.${NC}"
+    if confirm_action "CONFIRM: Have you already successfully booted this device with this AVB key?" "N"; then
+        echo "Running: fastboot flashing lock"
+        fastboot flashing lock
+        echo -e "${CYAN}Please confirm on the device screen!${NC}"
+        read -p "Press Enter after locking is done..."
+        # Reboot after lock
+        fastboot reboot
+    else
+        echo "Aborting lock for safety. Rebooting instead."
+        fastboot reboot
+    fi
 else
-    echo "Skipping Lock. Your bootloader remains unlocked."
+    # Reboot Flow (Default)
+    echo -e "Rebooting to System for verification..."
+    echo -e "NOTE: You should see a YELLOW warning screen saying 'Your device is loading a different operating system'."
+    echo -e "This is NORMAL and confirms your custom Key is working."
+    fastboot reboot
 fi
 
-# 9. Final Reboot
-echo "Rebooting System..."
-fastboot reboot
 echo -e "${GREEN}Done.${NC}"

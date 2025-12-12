@@ -99,3 +99,20 @@ def generate_custota_csig(output_filename, key_path):
          print_status("CUSTOTA", "SUCCESS", "Signature generated", Color.GREEN)
     except Exception as e:
         log("⚠️  Custota tool failed or not found. Skipping metadata.")
+
+def extract_patched_boot_images(zip_path, output_dir):
+    """
+    Extracts init_boot.img and boot.img from the patched OTA zip.
+    """
+    log("Extracting patched boot images...")
+    try:
+        subprocess.check_call([
+            "avbroot", "ota", "extract",
+            "--input", zip_path,
+            "--directory", output_dir,
+
+        ])
+        print_status("EXTRACT", "SUCCESS", "Boot images extracted", Color.GREEN)
+    except Exception as e:
+        log_error(f"Failed to extract images: {e}")
+        # Non-critical, do not exit
