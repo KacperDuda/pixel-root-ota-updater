@@ -11,16 +11,25 @@ steps:
       - '--secret=avb-private-key'
       - '--out-file=cyber_rsa4096_private.pem'
 
-  # 2. Zbuduj obraz (Docker) - BEZ KLUCZA
-  # Dockerfile nie kopiuje klucza, bo go tam nie ma w kontekście (chyba że w workspace).
-  # Ale lepiej uważać: Jeśli 'cyber_rsa4096_private.pem' leży w root, 'COPY src/ .' może go pominąć (bo src/),
-  # ale upewnijmy się, że Dockerfile nie ma 'COPY . .'
-  # Mój Dockerfile miał 'COPY src/ /app/'. Bezpiecznie.
+      - '--out-file=cyber_rsa4096_private.pem'
+
+  # 1b. Spróbuj pobrać poprzedni obraz (dla Cache'a)
+  # "|| exit 0" zapewnia, że błąd (np. brak obrazu przy pierwszym uruchomieniu) nie przerwie builda.
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'pixel-automator', '.']
+    entrypoint: 'bash'
+    args: ['-c', 'docker pull gcr.io/$PROJECT_ID/pixel-automator:latest || exit 0']
+
+  # 2. Zbuduj obraz (Docker) z wykorzystaniem Cache'a
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/pixel-automator:latest',
+      '--cache-from', 'gcr.io/$PROJECT_ID/pixel-automator:latest',
+      '.'
+    ]
 
   # 3. Uruchom Automator
-  - name: 'pixel-automator'
+  - name: 'gcr.io/$PROJECT_ID/pixel-automator:latest'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -37,6 +46,23 @@ steps:
     volumes:
       - name: 'build_output'
         path: '/app/output'
+    # ... (reszta bez zmian)
+
+# ... (reszta pliku jest OK, tylko na końcu dodajemy images)
+
+images:
+  - 'gcr.io/$PROJECT_ID/pixel-automator:latest'
+  
+substitutions:
+  _DEVICE_CODENAME: 'frankel'
+  _BUCKET_NAME: ''      # Must be provided by the Trigger
+  _CACHE_BUCKET_NAME: '' # Must be provided by the Trigger
+  _WEB_BUCKET_NAME: ''   # Must be provided by the Trigger
+
+timeout: '3600s' 
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
 
   # 4b. Upewnij się, że output jest dostępny (debug)
   - name: 'ubuntu'

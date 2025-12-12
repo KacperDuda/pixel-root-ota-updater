@@ -113,6 +113,19 @@ resource "google_secret_manager_secret_iam_member" "builder_private_key_accessor
   member    = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
+# 3b. API & Uprawnienia do GCR (Dla Docker Layer Caching)
+resource "google_project_service" "container_registry_api" {
+  service = "containerregistry.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Cloud Build SA potrzebuje Storage Admin, aby tworzyć/zarządzać bucketem GCR (artifacts.PROJECT-ID...)
+resource "google_project_iam_member" "builder_gcr_admin" {
+  project = var.gcp_project_id
+  role    = "roles/storage.admin"
+  member  = "serviceAccount:${google_service_account.builder_sa.email}"
+}
+
 # 5. Cloud Build Trigger - uruchamia budowanie po pushu do `main`
 resource "google_cloudbuild_trigger" "push_to_main_trigger" {
   name     = "${var.github_repo_name}-push-to-main"
