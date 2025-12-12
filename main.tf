@@ -278,8 +278,8 @@ resource "google_cloud_run_v2_job" "automator_job" {
         # Zasoby (RAM/CPU) - Zwiększone dla OTA Patching
         resources {
           limits = {
-            memory = "4Gi"
-            cpu    = "2"
+            memory = "8Gi"
+            cpu    = "4"
           }
         }
       }
