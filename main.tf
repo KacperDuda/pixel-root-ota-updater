@@ -76,7 +76,14 @@ resource "google_secret_manager_secret" "avb_private_key" {
     auto {}
   }
 }
-# Note: Manually upload private key via gcloud/Console
+
+# Dodanie wartości (wersji) do sekretu
+resource "google_secret_manager_secret_version" "avb_private_key_version" {
+  secret      = google_secret_manager_secret.avb_private_key.id
+  secret_data = file("${path.module}/cyber_rsa4096_private.pem") # Wczytanie klucza z pliku
+}
+
+
 
 # 4. Service Account dla Buildera
 resource "google_service_account" "builder_sa" {
@@ -232,9 +239,11 @@ resource "google_storage_bucket_iam_member" "builder_web_writer" {
 resource "google_cloud_run_v2_job" "automator_job" {
   name     = "${var.github_repo_name}-job"
   location = var.gcp_region
-  
+
   depends_on = [
-    google_project_service.cloud_run_api,
+    google_service_account_iam_member.builder_act_as_self,
+    google_artifact_registry_repository.docker_repo,
+    google_secret_manager_secret_version.avb_private_key_version # Upewnij się, że wersja sekretu istnieje
   ]
 
   template {
@@ -243,8 +252,9 @@ resource "google_cloud_run_v2_job" "automator_job" {
       timeout         = "3600s" # 1h timeout, same as Cloud Build
 
       containers {
-        # Używamy zmiennej "latest" - Cloud Build zaktualizuje ten job po zbudowaniu nowego obrazu
-        image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.docker_repo.repository_id}/pixel-automator:latest"
+        # Przy pierwszym uruchomieniu używamy obrazu "placeholder".
+        # Cloud Build (w cloudbuild.yaml) jest odpowiedzialny za aktualizację tego zadania, aby używało właściwego obrazu po jego zbudowaniu.
+        image = "gcr.io/google-containers/pause"
         
         env {
           name = "_DEVICE_CODENAME"
