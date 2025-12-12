@@ -321,23 +321,95 @@ def main():
         date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
         # Structure: builds/{device}/{date}/{filename}
         
+        base_prefix = f"builds/{DEVICE_CODENAME}/{date_str}"
+        zip_blob_path = f"{base_prefix}/{os.path.basename(output_filename)}"
+        
+        # 9.1 Upload Main Artifacts
         # Upload ZIP
-        zip_blob = f"builds/{DEVICE_CODENAME}/{date_str}/{os.path.basename(output_filename)}"
-        if not upload_gcs_file(bucket_env, output_filename, zip_blob):
+        if not upload_gcs_file(bucket_env, output_filename, zip_blob_path):
             log_error("Failed to upload ZIP file. Aborting.")
             sys.exit(1)
         
         # Upload CSIG
         csig_file = f"{output_filename}.csig"
         if os.path.exists(csig_file):
-            if not upload_gcs_file(bucket_env, csig_file, f"{zip_blob}.csig"):
-                log_error("Failed to upload CSIG file. Aborting.")
-                sys.exit(1)
+            upload_gcs_file(bucket_env, csig_file, f"{zip_blob_path}.csig")
             
-        # Upload JSON info
-        if not upload_gcs_file(bucket_env, OUTPUT_JSON, f"builds/{DEVICE_CODENAME}/{date_str}/info.json"):
-            log_error("Failed to upload JSON report. Aborting.")
-            sys.exit(1)
+        # Upload JSON report
+        upload_gcs_file(bucket_env, OUTPUT_JSON, f"{base_prefix}/info.json")
+
+        # 9.2 Upload Extracted Images (Recursively)
+        if os.path.exists(extraction_subdir):
+            log(f"☁️  Uploading extracted images from {extraction_subdir}...")
+            # We want to upload to: builds/{device}/{date}/{zip_basename_no_ext}/
+            extracted_prefix = f"{base_prefix}/{os.path.basename(extraction_subdir)}"
+            
+            client = storage.Client()
+            bucket = client.bucket(bucket_env)
+            
+            for root, dirs, files in os.walk(extraction_subdir):
+                for file in files:
+                    local_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(local_path, extraction_subdir)
+                    blob_path = f"{extracted_prefix}/{rel_path}"
+                    
+                    blob = bucket.blob(blob_path)
+                    blob.upload_from_filename(local_path)
+                    print(f"   -> Uploaded: {rel_path}")
+            log("✅ Extracted images uploaded.")
+
+        # 9.3 Generate and Upload latest.json (for Web Flasher)
+        # Using public URL format
+        # https://storage.googleapis.com/BUCKET/builds/DEVICE/DATE/SUBDIR/init_boot.img
+        public_img_url = f"https://storage.googleapis.com/{bucket_env}/{base_prefix}/{os.path.basename(extraction_subdir)}/init_boot.img"
+        
+        latest_json_content = {
+            "date": date_str,
+            "id": os.path.basename(output_filename),
+            "image_url": public_img_url
+        }
+        
+        with open("latest.json", "w") as f:
+            json.dump(latest_json_content, f)
+            
+        upload_gcs_file(bucket_env, "latest.json", "latest.json") # Root latest.json
+        
+        # 9.4 Update Central Index (builds_index.json)
+        index_filename = "builds_index.json"
+        log("update_build_index: Downloading existing index...")
+        
+        current_index = []
+        # Try download
+        if download_gcs_file(bucket_env, index_filename, index_filename):
+            try:
+                with open(index_filename, "r") as f:
+                    current_index = json.load(f)
+            except:
+                log("   Index corrupt or empty, creating new.")
+                current_index = []
+        
+        # New Entry
+        new_entry = {
+            "device": DEVICE_CODENAME,
+            "android_version": os.path.basename(filename).split('-')[2] if len(os.path.basename(filename).split('-')) > 2 else "unknown", # Heuristic parse
+            "build_date": date_str,
+            "filename": os.path.basename(output_filename),
+            "url": f"https://storage.googleapis.com/{bucket_env}/{zip_blob_path}",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Remove duplicates (by filename)
+        current_index = [x for x in current_index if x.get("filename") != new_entry["filename"]]
+        current_index.append(new_entry)
+        
+        # Sort by date desc
+        current_index.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        with open(index_filename, "w") as f:
+            json.dump(current_index, f, indent=4)
+            
+        upload_gcs_file(bucket_env, index_filename, index_filename)
+        log("✅ Central index updated.")
 
 
 if __name__ == "__main__":

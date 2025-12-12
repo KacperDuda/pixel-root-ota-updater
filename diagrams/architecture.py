@@ -1,5 +1,6 @@
 from diagrams import Cluster, Diagram, Edge
-from diagrams.gcp.devtools import Build
+from diagrams.gcp.devtools import Build, Scheduler
+from diagrams.gcp.compute import Run
 from diagrams.gcp.storage import GCS
 from diagrams.gcp.security import SecretManager
 from diagrams.onprem.vcs import Github
@@ -28,8 +29,10 @@ with Diagram("Pixel Build Pipeline Architecture", show=False, filename="diagrams
     with Cluster("Google Cloud Platform"):
         
         with Cluster("1. CI/CD & Logic"):
-            # The logic runs INSIDE Cloud Build
-            builder = Build("Cloud Build\n(Pixel Automator)")
+            # Trigger -> Build -> Deploy Job
+            scheduler = Scheduler("Cloud Scheduler\n(Every 24h)")
+            builder = Build("Cloud Build\n(Build & Deploy)")
+            automator = Run("Cloud Run Job\n(Pixel Automator)")
 
         with Cluster("2. Storage"):
             bucket = GCS("GCS Bucket\n(Cache & Artifacts)")
@@ -41,14 +44,16 @@ with Diagram("Pixel Build Pipeline Architecture", show=False, filename="diagrams
 
     # 1. Trigger
     developer >> Edge(label="Trigger Build", color="darkorange", minlen="2.0") >> builder
+    builder >> Edge(label="Deploy/Update", style="bold") >> automator
+    scheduler >> Edge(label="Trigger Job", style="dashed") >> automator
 
     # 2. Dependencies
-    builder >> Edge(label="Fetch Keys", color="red", style="bold") >> secrets
-    builder >> Edge(label="Check/Download", color="blue", style="dashed") >> google_servers
+    automator >> Edge(label="Fetch Keys", color="red", style="bold") >> secrets
+    automator >> Edge(label="Check/Download", color="blue", style="dashed") >> google_servers
 
     # 3. Cache & Artifacts
-    builder >> Edge(label="Check Cache", color="black") >> bucket
-    builder >> Edge(label="Upload Artifacts", color="darkgreen", style="bold") >> bucket
+    automator >> Edge(label="Check Cache", color="black") >> bucket
+    automator >> Edge(label="Upload Artifacts", color="darkgreen", style="bold") >> bucket
 
     # 4. Deployment/Update
     bucket >> Edge(label="Download OTA", color="green", style="bold", minlen="2.0") >> user_phone

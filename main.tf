@@ -174,6 +174,8 @@ resource "google_cloudbuild_trigger" "push_to_main_trigger" {
     _DOCKER_REPO_URL  = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.docker_repo.repository_id}"
     _DEVICE_CODENAME  = "frankel"
     _WEB_BUCKET_NAME  = google_storage_bucket.web_flasher_bucket.name
+    _REGION           = var.gcp_region
+    _REPO_NAME        = var.github_repo_name
   }
 }
 
@@ -204,3 +206,83 @@ resource "google_storage_bucket_iam_member" "builder_web_writer" {
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.builder_sa.email}"
 }
+
+# 7. Cloud Run Job - Automator Logic
+# To zadanie będzie uruchamiane cyklicznie przez Scheduler oraz ręcznie przez Cloud Build (po update)
+resource "google_cloud_run_v2_job" "automator_job" {
+  name     = "${var.github_repo_name}-job"
+  location = var.gcp_region
+  
+  template {
+    template {
+      service_account = google_service_account.builder_sa.email
+      timeout         = "3600s" # 1h timeout, same as Cloud Build
+
+      containers {
+        # Używamy zmiennej "latest" - Cloud Build zaktualizuje ten job po zbudowaniu nowego obrazu
+        image = "${var.gcp_region}-docker.pkg.dev/${var.gcp_project_id}/${google_artifact_registry_repository.docker_repo.repository_id}/pixel-automator:latest"
+        
+        env {
+          name = "_DEVICE_CODENAME"
+          value = "frankel"
+        }
+        env {
+          name = "_BUCKET_NAME"
+          value = google_storage_bucket.release_bucket.name
+        }
+        env {
+          name = "CACHE_BUCKET_NAME"
+          value = google_storage_bucket.ota_cache_bucket.name
+        }
+
+        # Montowanie sekretu (klucz AVB)
+        volume_mounts {
+          name       = "avb-key-volume"
+          mount_path = "/app/secrets"
+        }
+      }
+
+      volumes {
+        name = "avb-key-volume"
+        secret {
+          secret = google_secret_manager_secret.avb_private_key.secret_id
+          items {
+            version = "latest"
+            path    = "cyber_rsa4096_private.pem"
+          }
+        }
+      }
+    }
+  }
+}
+
+# 8. Cloud Scheduler - Trigger 24h
+resource "google_cloud_scheduler_job" "daily_runner" {
+  name        = "${var.github_repo_name}-daily-cron"
+  description = "Triggers Pixel Automator Cloud Run Job every 24h"
+  schedule    = "0 3 * * *" # 3:00 AM daily
+  time_zone   = "Europe/Warsaw"
+  region      = var.gcp_region
+
+  http_target {
+    # Cloud Run Job invocation
+    uri         = "https://${var.gcp_region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.gcp_project_id}/jobs/${google_cloud_run_v2_job.automator_job.name}:run"
+    http_method = "POST"
+    
+    oauth_token {
+      service_account_email = google_service_account.builder_sa.email
+    }
+  }
+}
+
+# Uprawnienia dla Contbuildera do uruchamiania Cloud Run (jeśli Cloud Build ma to robić)
+resource "google_project_iam_member" "builder_run_admin" {
+  project = var.gcp_project_id
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${google_service_account.builder_sa.email}"
+}
+
+# Service Account ActAs (wymagane, by Cloud Build mógł zlecić uruchomienie Joba jako inny SA - 'builder_sa')
+# W tym przypadku Cloud Build działa jako 'builder_sa', a Job też jako 'builder_sa', więc ActAs jest implicit,
+# ale warto dodać explicite jeśli builder triggera używa domyślnego konta Cloud Build.
+# Tutaj trigger używa `service_account = google_service_account.builder_sa.id`, więc jest OK.

@@ -43,76 +43,24 @@ steps:
       '.'
     ]
 
-  # 3. Uruchom Automator
-  - name: '${_DOCKER_REPO_URL}/pixel-automator:latest'
+  # 3. Zaktualizuj Cloud Run Job (nowym obrazem)
+  - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Przenosimy klucz z workspace do miejsca, gdzie skrypt go szuka
-        cp /workspace/cyber_rsa4096_private.pem /app/cyber_rsa4096_private.pem
-        
-        # Uruchamiamy
-        cd /app && python3 pixel_automator.py
-    env:
-      - '_DEVICE_CODENAME=${_DEVICE_CODENAME}'
-      - '_BUCKET_NAME=${_BUCKET_NAME}'
-      - 'CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME}'
-    volumes:
-      - name: 'build_output'
-        path: '/app/output'
+        echo "Updating Cloud Run Job: ${_REPO_NAME}-job with image: ${_DOCKER_REPO_URL}/pixel-automator:latest"
+        gcloud run jobs update ${_REPO_NAME}-job \
+          --image ${_DOCKER_REPO_URL}/pixel-automator:latest \
+          --region ${_REGION} \
+          --set-env-vars=_DEVICE_CODENAME=${_DEVICE_CODENAME} \
+          --set-env-vars=_BUCKET_NAME=${_BUCKET_NAME} \
+          --set-env-vars=CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME}
 
-
-  # 4b. Upewnij się, że output jest dostępny (debug)
-  - name: 'ubuntu'
-    volumes:
-      - name: 'build_output'
-        path: '/workspace/output'
-    args: ['ls', '-la', '/workspace/output']
-
-    
-  # 4. Wyślij wyniki
-  - name: 'gcr.io/cloud-builders/gsutil'
-    entrypoint: 'bash'
-    volumes:
-      - name: 'build_output'
-        path: '/workspace/output'
-    args:
-      - '-c'
-      - |
-        RESULT_FILE=$(find /workspace/output -name "ksu_patched_*.zip" | head -n 1)
-        if [ ! -z "$$RESULT_FILE" ]; then
-          DATE=$(date +%Y%m%d)
-          FILENAME=$(basename "$$RESULT_FILE")
-          # 1. Główny ZIP
-          gsutil cp "$$RESULT_FILE" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/$$FILENAME
-          
-          # 2. Sygnatura Custota
-          if [ -f "$$RESULT_FILE.csig" ]; then
-             gsutil cp "$$RESULT_FILE.csig" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/$$FILENAME.csig
-          fi
-          
-          # 3. Raport JSON
-          if [ -f "/workspace/output/build_status.json" ]; then
-             gsutil cp /workspace/output/build_status.json gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/info.json
-          fi
-          
-          # 4. Folder z obrazami (BOOT/INIT_BOOT + AVB Key)
-          BASENAME="$${FILENAME%.*}"
-          EXTRACTED_DIR="/workspace/output/$$BASENAME"
-          
-          if [ -d "$$EXTRACTED_DIR" ]; then
-             echo "Uploading extracted images from $$EXTRACTED_DIR..."
-             # Kopiujemy rekurencyjnie cały folder z obrazami
-             gsutil cp -r "$$EXTRACTED_DIR" gs://${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/
-             
-             # 5. Generate latest.json for Web Flasher
-             # Using the PUBLIC url for the web flasher to access
-             PUBLIC_URL="https://storage.googleapis.com/${_BUCKET_NAME}/builds/${_DEVICE_CODENAME}/$$DATE/$${BASENAME}/init_boot.img"
-             echo "{\"date\":\"$$DATE\", \"id\":\"$$FILENAME\", \"image_url\":\"$$PUBLIC_URL\"}" > latest.json
-             gsutil cp latest.json gs://${_BUCKET_NAME}/latest.json
-          fi
-        fi
+  # 4. Uruchom Joba (Test poprawności po wdrożeniu)
+  # Opcjonalnie: można to pominąć i polegać na Schedulerze, ale warto sprawdzić czy działa od razu.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['run', 'jobs', 'execute', '${_REPO_NAME}-job', '--region', '${_REGION}', '--wait']
 
   # 5. Deploy Web Flasher
   - name: 'gcr.io/cloud-builders/gsutil'
