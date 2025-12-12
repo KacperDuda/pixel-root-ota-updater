@@ -1,4 +1,19 @@
 steps:
+  # 0. Sprawdź dostępność Artifact Registry
+  # Ten krok zapobiega uruchomieniu builda, jeśli repozytorium nie istnieje.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Verifying Artifact Registry existence: ${_DOCKER_REPO_URL}"
+        # Próbujemy wylistować obrazy (nawet pusta lista oznacza sukces = repo istnieje)
+        if ! gcloud artifacts docker images list ${_DOCKER_REPO_URL} --limit=1 > /dev/null 2>&1; then
+          echo "ERROR: Artifact Registry repository '${_DOCKER_REPO_URL}' does not exist or is not accessible."
+          echo "Please ensure the Terraform infrastructure has been applied successfully."
+          exit 1
+        fi
+        echo "Artifact Registry verified successfully."
   # 1. Pobierz ("Wypożycz") klucz z Secret Managera
   # To zapewnia, że klucz istnieje. Jeśli nie (błąd 404/403), build tutaj PADNIE i nie uruchomi kontenera.
   # Klucz trafia do wolumenu /workspace, który jest współdzielony i ulotny (znika po buildzie).
