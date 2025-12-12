@@ -313,4 +313,4 @@ resource "google_project_iam_member" "builder_run_admin" {
 # Service Account ActAs (wymagane, by Cloud Build mógł zlecić uruchomienie Joba jako inny SA - 'builder_sa')
 # W tym przypadku Cloud Build działa jako 'builder_sa', a Job też jako 'builder_sa', więc ActAs jest implicit,
 # ale warto dodać explicite jeśli builder triggera używa domyślnego konta Cloud Build.
-# Tutaj trigger używa `service_account = google_service_account.builder_sa.id`, więc jest OK.
+# Tutaj trigger używa `service_account = google_service_account.builder_sa.id`, więc jest OK. 
