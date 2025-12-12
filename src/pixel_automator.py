@@ -22,7 +22,12 @@ import avb_patcher
 DEVICE_CODENAME = os.environ.get('_DEVICE_CODENAME', 'frankel') 
 OUTPUT_JSON = "build_status.json"
 DEFAULT_KEY_NAME = "cyber_rsa4096_private.pem"
-DEFAULT_DOCKER_KEY_PATH = f"/app/{DEFAULT_KEY_NAME}"
+# Paths to check for the key (Priority order)
+KEY_SEARCH_PATHS = [
+    "/app/secrets/cyber_rsa4096_private.pem", # Cloud Run Secret Mount
+    f"/app/{DEFAULT_KEY_NAME}",              # Docker Copy
+    DEFAULT_KEY_NAME                          # Local CWD
+]
 OUTPUT_DIR = "/app/output"
 
 def download_gcs_file(bucket_name, blob_name, destination):
