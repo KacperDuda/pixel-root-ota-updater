@@ -113,16 +113,29 @@ resource "google_secret_manager_secret_iam_member" "builder_private_key_accessor
   member    = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
-# 3b. API & Uprawnienia do GCR (Dla Docker Layer Caching)
+# 3b. API & Uprawnienia do GCR / Artifact Registry
+# Nowe projekty GCP używają Artifact Registry zamiast starego GCR, nawet pod adresem gcr.io
 resource "google_project_service" "container_registry_api" {
   service = "containerregistry.googleapis.com"
   disable_on_destroy = false
 }
 
-# Cloud Build SA potrzebuje Storage Admin, aby tworzyć/zarządzać bucketem GCR (artifacts.PROJECT-ID...)
+resource "google_project_service" "artifact_registry_api" {
+  service = "artifactregistry.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Cloud Build SA potrzebuje Storage Admin (dla starego GCR)
 resource "google_project_iam_member" "builder_gcr_admin" {
   project = var.gcp_project_id
   role    = "roles/storage.admin"
+  member  = "serviceAccount:${google_service_account.builder_sa.email}"
+}
+
+# ...ORAZ Artifact Registry Writer (dla nowego GCR/AR)
+resource "google_project_iam_member" "builder_ar_writer" {
+  project = var.gcp_project_id
+  role    = "roles/artifactregistry.writer"
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
 }
 
