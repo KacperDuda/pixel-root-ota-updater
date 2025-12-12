@@ -75,14 +75,22 @@ def verify_bucket_access(bucket_name):
     try:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
-        # Attempt to list 1 blob - this requires storage.objects.list (included in objectAdmin)
-        # whereas bucket.reload() requires storage.buckets.get (not included)
-        blobs = list(client.list_blobs(bucket_name, max_results=1))
-        log(f"✅ Bucket '{bucket_name}' verified (access ok).")
+        # 1. Check Read/List
+        blobs = client.list_blobs(bucket_name, max_results=1)
+        for b in blobs: pass
+        
+        # 2. Check Write (Create/Delete)
+        # We create a tiny temp file to confirm we have write permissions
+        # crucial before starting a massive download/patch job.
+        test_blob_name = f"access_check_{int(time.time())}.tmp"
+        blob = bucket.blob(test_blob_name)
+        blob.upload_from_string("write_test")
+        blob.delete()
+        
+        log(f"✅ Bucket '{bucket_name}' verified (read/write access ok).")
     except Exception as e:
-        log_error(f"❌ CRITICAL failure accessing bucket '{bucket_name}'")
-        log_error(f"Reason: {e}")
-        log_error("Aborting build immediately to prevent resource waste.")
+        log_error(f"❌ CRITICAL failure accessing bucket '{bucket_name}': {e}")
+        log_error("   Verify 'roles/storage.objectAdmin' is assigned to the Cloud Build Service Account.")
         sys.exit(1)
 
 
