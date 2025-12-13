@@ -6,8 +6,9 @@ import './style.css';
 import { runWebFlasher, FlasherConfig, ValidatedFiles } from './flasher';
 
 // Import ADB Libraries
-import { Adb } from '@yume-chan/adb';
-import AdbWebUsbBackend from '@yume-chan/adb-backend-webusb';
+import { Adb, AdbDaemonTransport } from '@yume-chan/adb';
+import { AdbWebUsbBackend } from '@yume-chan/adb-backend-webusb';
+import AdbWebCredentialStore from '@yume-chan/adb-credential-web';
 
 // Configuration
 const BUCKET_NAME = "sabre-gcp-project-pixel-root-ota-updater-release";
@@ -103,16 +104,43 @@ async function fetchBuilds() {
 async function tryRebootToBootloader() {
     try {
         log("Trying ADB Reboot (WebUSB)...");
-        const backend = await AdbWebUsbBackend.requestDevice({ filters: [{ vendorId: 0x18d1 }] });
-        if (!backend) return false;
+        // 1. Request Device manually
+        const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x18d1 }] });
+        if (!device) return false;
 
-        const adb = await Adb.overWebUsb(backend);
-        log("ADB Connection established. sending reboot bootloader...");
-        await adb.subprocess.spawnAndWait("reboot bootloader");
+        // 2. Wrap in Backend
+        // Constructor requires: device, filters, usb
+        const backend = new AdbWebUsbBackend(device, undefined, navigator.usb);
+
+        // 3. Connect (Adb.overWebUsb is replaced by manual connection)
+        const connection = await backend.connect();
+
+        // Authenticate and create transport
+        const CredentialStore = new AdbWebCredentialStore();
+        const transport = await AdbDaemonTransport.authenticate({
+            serial: device.serialNumber!,
+            connection: connection as any,
+            credentialStore: CredentialStore
+        });
+
+        // 4. Create Client
+        const adb = new Adb(transport);
+
+        log("ADB Connection established. Sending reboot bootloader...");
+
+        // 5. Send Reboot Command
+        // Modern Adb library has a dedicated power service
+        try {
+            await adb.power.bootloader();
+        } catch (spawnErr) {
+            // Expected if device disconnects immediately
+            console.warn("Reboot command sent (device disconnected):", spawnErr);
+        }
+
         log("Reboot command sent. Device should restart.");
         return true;
     } catch (e: any) {
-        log(`ADB Reboot failed: ${e.message}. Manual reboot required.`, 'error');
+        log(`ADB Reboot operation failed: ${e.message}`, 'error');
         return false;
     }
 }

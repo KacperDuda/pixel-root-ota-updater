@@ -17,3 +17,8 @@ pixel_userdata_*
 
 .venv/
 *.log
+
+# Node
+node_modules/
+web/node_modules/
+web/dist/
