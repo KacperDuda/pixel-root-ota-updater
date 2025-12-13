@@ -1,5 +1,5 @@
 
-import { runWebFlasher } from './flasher.js';
+import { runWebFlasher } from './flasher.js?v=2.1';
 
 // Configuration
 const BUCKET_NAME = "sabre-gcp-project-pixel-root-ota-updater-release";

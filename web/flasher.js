@@ -1,5 +1,5 @@
 // Import directly from CDN (No Build Tool required)
-import * as Fastboot from 'https://esm.sh/android-fastboot';
+import * as Fastboot from 'https://esm.sh/android-fastboot?bundle';
 // This provides { FastbootDevice, ... }
 
 // Notes:

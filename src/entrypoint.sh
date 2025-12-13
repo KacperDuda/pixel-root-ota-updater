@@ -15,7 +15,7 @@ if [ $EXIT_CODE -eq 0 ]; then
         chmod 777 /app/output/build_status.json 2>/dev/null
         echo "[ENTRYPOINT] ✅ Pliki skopiowane pomyślnie (uprawnienia poprawione)."
     else
-        echo "[ENTRYPOINT] ⚠️  Ostrzeżenie: Nie znaleziono plików wynikowych."
+        echo "[ENTRYPOINT] ℹ️  Info: Nie znaleziono nowych plików wynikowych (Prawdopodobnie BUILD SKIPPED)."
     fi
 else
     echo "[ENTRYPOINT] ❌ Skrypt Python zwrócił błąd."
