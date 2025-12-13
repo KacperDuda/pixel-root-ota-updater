@@ -29,6 +29,7 @@ interface FastbootDevice {
     runCommand(cmd: string): Promise<void>;
     waitForConnect(): Promise<void>;
     upload(partition: string, buffer: ArrayBuffer): Promise<void>;
+    flashFactoryZip(blob: Blob | File, wipe: boolean, onReconnect: () => Promise<void>, onProgress: (action: string, item: string, progress: number) => void): Promise<void>;
 }
 
 /**
@@ -184,41 +185,7 @@ async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
     log("AVB Key flashed successfully.", "success");
 }
 
-/**
- * 3. FLASH FIRMWARE FLOW
- */
-async function flashFirmware(device: any, zipBlob: Blob, wipeData: boolean = false) {
-    const onReconnect = async () => {
-        log("Device reboot detected (mode switch). Reconnecting...");
-        await device.waitForConnect();
-    };
 
-    const onProgress = (action: string, partition: string, progressPercent: number) => {
-        const percent = (progressPercent * 100).toFixed(1);
-        log(`[${action}] ${partition}: ${percent}%`);
-
-        const bar = document.getElementById('progress-fill');
-        if (bar) bar.style.width = `${percent}%`;
-    };
-
-    log(`Starting Firmware Flash (Wipe: ${wipeData})...`);
-
-    // In migrated environment, Fastboot.flashZip should be available if imported correctly
-    // or passed via dependency injection. 
-    // The android-fastboot library usually exposes { flashZip }
-    if ((Fastboot as any).flashZip) {
-        try {
-            await (Fastboot as any).flashZip(device, zipBlob, wipeData, onReconnect, onProgress);
-        } catch (e: any) {
-            throw new Error("Flash Zip failed: " + e.message);
-        }
-    } else {
-        log("MOCK: Flashing zip (library not fully integrated)...");
-        log(`Size: ${(zipBlob.size / 1024 / 1024).toFixed(2)} MB`);
-        await new Promise(r => setTimeout(r, 2000));
-        log("MOCK: Flash Complete.", "success");
-    }
-}
 
 /**
  * 4. LOCK FLOW
@@ -283,9 +250,11 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
                 const reader = response.body?.getReader();
                 if (!reader) throw new Error("Browser does not support streaming download.");
 
-                const chunks: Uint8Array[] = [];
-                let lastLoggedPercent = 0;
+                const root = await navigator.storage.getDirectory();
+                const fileHandle = await root.getFileHandle('firmware.zip', { create: true });
+                const writable = await fileHandle.createWritable();
 
+                let lastLoggedPercent = 0;
                 log(`Download started. Total size: ${(total / 1024 / 1024).toFixed(2)} MB`);
 
                 while (true) {
@@ -293,7 +262,7 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
                     if (done) break;
 
                     if (value) {
-                        chunks.push(value);
+                        await writable.write(value);
                         loaded += value.length;
 
                         if (total > 0) {
@@ -301,8 +270,8 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
                             const percentStr = percentNum.toFixed(1);
 
                             // Update UI Bar
-                            const bar = document.getElementById('progress-fill');
-                            if (bar) bar.style.width = `${percentStr}%`;
+                            const bar = document.getElementById('progress-bar') as HTMLProgressElement;
+                            if (bar) bar.value = percentNum;
 
                             // Log every 10%
                             if (percentNum - lastLoggedPercent >= 10) {
@@ -313,15 +282,42 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
                     }
                 }
 
-                const blob = new Blob(chunks as any);
-                log(`Download finished. Size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`, "success");
+                await writable.close();
+                const file = await fileHandle.getFile();
+                log(`Download finished. Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`, "success");
 
                 // RESET BAR for Flashing Phase
-                const bar = document.getElementById('progress-fill');
-                if (bar) bar.style.width = '0%';
-                log("Starting Firmware Flash...", "info");
+                const bar = document.getElementById('progress-bar') as HTMLProgressElement;
+                if (bar) bar.value = 0;
 
-                await flashFirmware(device, blob, config.wipeData);
+                log("Verifying device connection before flashing...", "info");
+                try {
+                    // Check if connection is still alive
+                    await device.getVariable('product');
+                } catch (e) {
+                    log("Connection appears stale (timeout?). Reconnecting...", "info");
+                    try {
+                        await device.connect();
+                        log("Reconnected successfully.", "success");
+                    } catch (connErr: any) {
+                        throw new Error("Failed to reconnect after download: " + connErr.message);
+                    }
+                }
+
+                log(`Starting Firmware Flash (Wipe: ${config.wipeData})...`, "info");
+
+                // Use the real flashFactoryZip method from the device instance
+                await (device as unknown as FastbootDevice).flashFactoryZip(file, config.wipeData, async () => {
+                    log("Device reboot detected. Reconnecting...");
+                    await device.waitForConnect();
+                }, (action: string, item: string, progress: number) => {
+                    const percent = (progress * 100).toFixed(1);
+                    log(`[${action}] ${item}: ${percent}%`);
+                    const bar = document.getElementById('progress-bar') as HTMLProgressElement;
+                    if (bar) bar.value = progress * 100;
+                });
+
+                log("Flash Complete.", "success");
             } catch (err: any) {
                 throw new Error(`Cloud Download Error: ${err.message}`);
             }
