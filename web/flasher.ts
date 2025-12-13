@@ -274,8 +274,52 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
             try {
                 const response = await fetch(files.zipUrl);
                 if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
-                const blob = await response.blob();
+
+                // Progress Bar Logic
+                const contentLength = response.headers.get('content-length');
+                const total = contentLength ? parseInt(contentLength, 10) : 0;
+                let loaded = 0;
+
+                const reader = response.body?.getReader();
+                if (!reader) throw new Error("Browser does not support streaming download.");
+
+                const chunks: Uint8Array[] = [];
+                let lastLoggedPercent = 0;
+
+                log(`Download started. Total size: ${(total / 1024 / 1024).toFixed(2)} MB`);
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    if (value) {
+                        chunks.push(value);
+                        loaded += value.length;
+
+                        if (total > 0) {
+                            const percentNum = (loaded / total) * 100;
+                            const percentStr = percentNum.toFixed(1);
+
+                            // Update UI Bar
+                            const bar = document.getElementById('progress-fill');
+                            if (bar) bar.style.width = `${percentStr}%`;
+
+                            // Log every 10%
+                            if (percentNum - lastLoggedPercent >= 10) {
+                                log(`Downloading... ${percentStr}%`);
+                                lastLoggedPercent = percentNum;
+                            }
+                        }
+                    }
+                }
+
+                const blob = new Blob(chunks as any);
                 log(`Download finished. Size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`, "success");
+
+                // RESET BAR for Flashing Phase
+                const bar = document.getElementById('progress-fill');
+                if (bar) bar.style.width = '0%';
+                log("Starting Firmware Flash...", "info");
 
                 await flashFirmware(device, blob, config.wipeData);
             } catch (err: any) {
