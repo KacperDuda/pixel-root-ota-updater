@@ -1,13 +1,10 @@
-import * as Fastboot from 'android-fastboot';
-// In a real bundler setup:
-// import { flashZip } from 'android-fastboot/factory';
-// For now, we assume the library exposes `Fastboot` and we access factory methods if available, 
-// or we mock/implement basic sparse flashing if the factory isn't directly exposed in the main export.
-// The user's report mentions `import { flashZip } from 'android-fastboot/factory';` so we stick to that.
+// Import directly from CDN (No Build Tool required)
+import * as Fastboot from 'https://esm.sh/android-fastboot';
+// This provides { FastbootDevice, ... }
 
-// Mocking imports for the sake of the file structure in this environment where we can't run npm install.
-// In production, these should be real imports.
-// import { flashZip } from 'android-fastboot/factory';
+// Notes:
+// Ensure your browser supports WebUSB.
+// This relies on esm.sh to bundle the library for browser usage.
 
 /* 
    === UTILITIES ===
