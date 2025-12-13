@@ -239,27 +239,26 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
             log(files.zipUrl);
 
             try {
+                // Extract filename from URL to use as cache key
+                const zipFilename = files.zipUrl.split('/').pop() || 'firmware.zip';
+
                 const root = await navigator.storage.getDirectory();
-                const fileHandle = await root.getFileHandle('firmware.zip', { create: true });
+                const fileHandle = await root.getFileHandle(zipFilename, { create: true });
 
                 // CACHING LOGIC
                 let useCache = false;
                 try {
                     const existingFile = await fileHandle.getFile();
                     if (existingFile.size > 0) {
-                        // Check if file is less than 24h old
-                        const now = new Date().getTime();
-                        const fileTime = existingFile.lastModified;
-                        const ageHours = (now - fileTime) / (1000 * 60 * 60);
-
                         // Check remote size (HEAD request)
                         const headResp = await fetch(files.zipUrl, { method: 'HEAD' });
                         const remoteSizeStr = headResp.headers.get('content-length');
                         const remoteSize = remoteSizeStr ? parseInt(remoteSizeStr, 10) : 0;
 
-                        if (ageHours < 24 && remoteSize > 0 && Math.abs(existingFile.size - remoteSize) < 1024) {
+                        // Trust cache if size matches (approximate check for small diffs due to sector reporting etc)
+                        if (remoteSize > 0 && Math.abs(existingFile.size - remoteSize) < 1024) {
                             useCache = true;
-                            log(`Using cached firmware (Age: ${ageHours.toFixed(1)}h). Skipping download.`, "success");
+                            log(`Using cached firmware: ${zipFilename}. Skipping download.`, "success");
                         }
                     }
                 } catch (e) {
@@ -337,14 +336,27 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
                     await device.waitForConnect();
                 }, (action: string, item: string, progress: number) => {
                     const percent = (progress * 100).toFixed(1);
-                    log(`[${action}] ${item}: ${percent}%`);
+                    if (action !== 'reboot') {
+                        log(`[${action}] ${item}: ${percent}%`);
+                    }
                     const bar = document.getElementById('progress-bar') as HTMLProgressElement;
                     if (bar) bar.value = progress * 100;
                 });
 
                 log("Flash Complete.", "success");
             } catch (err: any) {
-                throw new Error(`Cloud Download Error: ${err.message}`);
+                // CACHE INVALIDATION ON ERROR
+                try {
+                    // Re-derive filename to ensure we delete the correct one
+                    const zipFilename = files.zipUrl.split('/').pop() || 'firmware.zip';
+                    const root = await navigator.storage.getDirectory();
+                    await root.removeEntry(zipFilename);
+                    log(`Invalidated corrupt/partial cache (${zipFilename} removed).`, "info");
+                } catch (cleanupErr) {
+                    console.error("Failed to cleanup cache:", cleanupErr);
+                }
+
+                throw new Error(`Cloud Download/Flash Error: ${err.message}`);
             }
         }
 
