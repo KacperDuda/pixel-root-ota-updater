@@ -239,52 +239,74 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
             log(files.zipUrl);
 
             try {
-                const response = await fetch(files.zipUrl);
-                if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
-
-                // Progress Bar Logic
-                const contentLength = response.headers.get('content-length');
-                const total = contentLength ? parseInt(contentLength, 10) : 0;
-                let loaded = 0;
-
-                const reader = response.body?.getReader();
-                if (!reader) throw new Error("Browser does not support streaming download.");
-
                 const root = await navigator.storage.getDirectory();
                 const fileHandle = await root.getFileHandle('firmware.zip', { create: true });
-                const writable = await fileHandle.createWritable();
 
-                let lastLoggedPercent = 0;
-                log(`Download started. Total size: ${(total / 1024 / 1024).toFixed(2)} MB`);
+                // CACHING LOGIC
+                let useCache = false;
+                try {
+                    const existingFile = await fileHandle.getFile();
+                    if (existingFile.size > 0) {
+                        // Check if file is less than 24h old
+                        const now = new Date().getTime();
+                        const fileTime = existingFile.lastModified;
+                        const ageHours = (now - fileTime) / (1000 * 60 * 60);
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                        // Check remote size (HEAD request)
+                        const headResp = await fetch(files.zipUrl, { method: 'HEAD' });
+                        const remoteSizeStr = headResp.headers.get('content-length');
+                        const remoteSize = remoteSizeStr ? parseInt(remoteSizeStr, 10) : 0;
 
-                    if (value) {
-                        await writable.write(value);
-                        loaded += value.length;
+                        if (ageHours < 24 && remoteSize > 0 && Math.abs(existingFile.size - remoteSize) < 1024) {
+                            useCache = true;
+                            log(`Using cached firmware (Age: ${ageHours.toFixed(1)}h). Skipping download.`, "success");
+                        }
+                    }
+                } catch (e) {
+                    // Ignore error, proceed to download
+                }
 
-                        if (total > 0) {
-                            const percentNum = (loaded / total) * 100;
-                            const percentStr = percentNum.toFixed(1);
+                if (!useCache) {
+                    const response = await fetch(files.zipUrl);
+                    if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
 
-                            // Update UI Bar
-                            const bar = document.getElementById('progress-bar') as HTMLProgressElement;
-                            if (bar) bar.value = percentNum;
+                    const contentLength = response.headers.get('content-length');
+                    const total = contentLength ? parseInt(contentLength, 10) : 0;
+                    let loaded = 0;
 
-                            // Log every 10%
-                            if (percentNum - lastLoggedPercent >= 10) {
-                                log(`Downloading... ${percentStr}%`);
-                                lastLoggedPercent = percentNum;
+                    // Re-create writable to truncate/overwrite
+                    const writable = await fileHandle.createWritable();
+
+                    const reader = response.body?.getReader();
+                    if (!reader) throw new Error("Browser does not support streaming download.");
+
+
+                    log(`Download started. Total size: ${(total / 1024 / 1024).toFixed(2)} MB`);
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        if (value) {
+                            await writable.write(value);
+                            loaded += value.length;
+
+                            if (total > 0) {
+                                const percentNum = (loaded / total) * 100;
+
+                                // Update UI Bar
+                                const bar = document.getElementById('progress-bar') as HTMLProgressElement;
+                                if (bar) bar.value = percentNum;
                             }
                         }
                     }
+
+                    await writable.close();
+                    log("Download complete and flushed to storage.", "success");
                 }
 
-                await writable.close();
                 const file = await fileHandle.getFile();
-                log(`Download finished. Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`, "success");
+                log(`Firmware Ready. Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`, "success");
 
                 // RESET BAR for Flashing Phase
                 const bar = document.getElementById('progress-bar') as HTMLProgressElement;
@@ -306,8 +328,11 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
 
                 log(`Starting Firmware Flash (Wipe: ${config.wipeData})...`, "info");
 
+                // Use slice to ensure clean Blob state
+                const cleanBlob = file.slice(0, file.size);
+
                 // Use the real flashFactoryZip method from the device instance
-                await (device as unknown as FastbootDevice).flashFactoryZip(file, config.wipeData, async () => {
+                await (device as unknown as FastbootDevice).flashFactoryZip(cleanBlob, config.wipeData, async () => {
                     log("Device reboot detected. Reconnecting...");
                     await device.waitForConnect();
                 }, (action: string, item: string, progress: number) => {
