@@ -28,7 +28,7 @@ interface FastbootDevice {
     getVariable(name: string): Promise<string>;
     runCommand(cmd: string): Promise<void>;
     waitForConnect(): Promise<void>;
-    upload(blob: Blob): Promise<void>;
+    upload(partition: string, buffer: ArrayBuffer): Promise<void>;
 }
 
 /**
@@ -175,7 +175,10 @@ async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
     await device.runCommand('erase:avb_custom_key');
 
     log("Flashing new AVB Custom Key...");
-    await device.upload(keyBlob);
+    // FIX: buffer conversion and explicit partition naming
+    const buffer = await keyBlob.arrayBuffer();
+    await device.upload('avb_custom_key', buffer);
+
     await device.runCommand('flash:avb_custom_key');
 
     log("AVB Key flashed successfully.", "success");
