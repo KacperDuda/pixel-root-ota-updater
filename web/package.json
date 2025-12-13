@@ -5,7 +5,8 @@
     "scripts": {
         "dev": "vite",
         "build": "tsc && vite build",
-        "lint": "eslint . --ext .ts"
+        "lint": "eslint . --ext .ts",
+        "postinstall": "sed -i 's/let entry = entries.find((e) => e.filename.match(\\/image-.+\\\\.zip$\\/));/let entry = entries.find((e) => e.filename.match(\\/image-.+\\\\.zip$\\/)); if (!entry) { console.error(\"Entries:\", entries.map(e=>e.filename)); throw new Error(\"Missing nested image-*.zip\"); }/' node_modules/android-fastboot/dist/fastboot.mjs"
     },
     "dependencies": {
         "@yume-chan/adb": "^2.3.1",
