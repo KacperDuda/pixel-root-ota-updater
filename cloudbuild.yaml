@@ -74,30 +74,37 @@ steps:
           --region ${_REGION} \
           --memory 16Gi --cpu 4
 
-  # 8. Deploy Web Flasher (tylko po sukcesie)
+  # 3. Build Web Interface (Vite/NPM)
+  - name: 'node:20'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd web
+        npm ci
+        npm run build
+    id: 'npm-build'
+
+  # 4. Deploy Web Assets to public bucket
   - name: 'gcr.io/cloud-builders/gsutil'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "Deploying to Bucket: ${_WEB_BUCKET_NAME}"
-        # Safety check: Ensure variable is set
+        # Check if _WEB_BUCKET_NAME is set
         if [ -z "${_WEB_BUCKET_NAME}" ]; then
-          echo "ERROR: _WEB_BUCKET_NAME is not set. Please run 'terraform apply' to update the Trigger."
+          echo "Error: _WEB_BUCKET_NAME is not set. Please update your Trigger or Terraform."
           exit 1
         fi
         
-        # 1. Clean Bucket (User Request)
-        echo "Cleaning bucket..."
+        # Clean destination first (optional but safer for Single Page Apps updates)
         gsutil -m rm -rf "gs://${_WEB_BUCKET_NAME}/**" || true
         
-        # 2. Copy New Files (with No-Cache headers)
-        echo "Uploading new files..."
-        gsutil -m -h "Cache-Control:no-cache,max-age=0" rsync -r web "gs://${_WEB_BUCKET_NAME}"
-
-
-
-
+        # Sync dist folder with Cache-Control headers
+        # HTML files: no-cache
+        gsutil -m rsync -r -h "Cache-Control:no-cache,max-age=0" web/dist "gs://${_WEB_BUCKET_NAME}/"
+    id: 'deploy-web'
+    waitFor: ['npm-build']
 
 substitutions:
   _DEVICE_CODENAME: 'frankel'

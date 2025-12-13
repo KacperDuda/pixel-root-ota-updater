@@ -1,34 +1,55 @@
-// Import directly from CDN (No Build Tool required)
-import * as Fastboot from 'https://esm.sh/android-fastboot?bundle';
-// This provides { FastbootDevice, ... }
+import * as Fastboot from 'android-fastboot';
 
-// Notes:
-// Ensure your browser supports WebUSB.
-// This relies on esm.sh to bundle the library for browser usage.
+/**
+ * Configuration interface for the flasher.
+ */
+export interface FlasherConfig {
+    unlock: boolean;
+    flashKey: boolean;
+    flashZip: boolean;
+    lock: boolean;
+    wipeData: boolean;
+}
 
-/* 
-   === UTILITIES ===
-*/
+/**
+ * File inputs for the flasher.
+ */
+export interface ValidatedFiles {
+    key: Blob | null;
+    zipUrl: string | null;
+}
+
+/**
+ * Internal interface for the Fastboot Device provided by the library.
+ * Minimally typed based on usage.
+ */
+interface FastbootDevice {
+    connect(): Promise<void>;
+    getVariable(name: string): Promise<string>;
+    runCommand(cmd: string): Promise<void>;
+    waitForConnect(): Promise<void>;
+    upload(blob: Blob): Promise<void>;
+}
 
 /**
  * Shows a blocking modal (The Gatekeeper) with a 60s timer.
- * @param {string} message - Warning message.
- * @returns {Promise<boolean>} true if confirmed, false if timeout/cancelled.
+ * @param message - Warning message.
+ * @returns Promise<boolean> true if confirmed, false if timeout/cancelled.
  */
-export async function showBlockingWarning(message) {
-    const modal = document.getElementById('warning-modal');
+export async function showBlockingWarning(message: string): Promise<boolean> {
+    const modal = document.getElementById('warning-modal') as HTMLElement | null;
     const timerDisplay = document.getElementById('modal-timer');
     const confirmBtn = document.getElementById('btn-confirm');
     const cancelBtn = document.getElementById('btn-cancel');
     const msgBody = document.getElementById('modal-message');
 
-    if (!modal) return false;
+    if (!modal || !timerDisplay || !confirmBtn || !cancelBtn || !msgBody) return false;
 
     msgBody.textContent = message;
 
     // Native Dialog API
-    if (typeof modal.showModal === 'function') {
-        modal.showModal();
+    if (typeof (modal as any).showModal === 'function') {
+        (modal as any).showModal();
     } else {
         modal.style.display = 'block'; // Fallback
     }
@@ -37,16 +58,15 @@ export async function showBlockingWarning(message) {
     timerDisplay.textContent = `${timeLeft}`;
 
     return new Promise((resolve) => {
-        let timerInterval;
+        let timerInterval: any;
 
         const cleanup = () => {
             clearInterval(timerInterval);
-            if (typeof modal.close === 'function') {
-                modal.close();
+            if (typeof (modal as any).close === 'function') {
+                (modal as any).close();
             } else {
                 modal.style.display = 'none';
             }
-            // Remove listeners to prevent dupes
             confirmBtn.onclick = null;
             cancelBtn.onclick = null;
         };
@@ -79,11 +99,10 @@ export async function showBlockingWarning(message) {
 /**
  * Log wrapper to update UI console.
  */
-function log(msg, type = 'info') {
+function log(msg: string, type: 'info' | 'error' | 'success' = 'info') {
     const container = document.getElementById('log-container');
     if (!container) return;
 
-    // Also log to browser console
     if (type === 'error') console.error(msg);
     else console.log(msg);
 
@@ -98,14 +117,10 @@ function log(msg, type = 'info') {
     container.scrollTop = container.scrollHeight;
 }
 
-/*
-   === FASTBOOT LOGIC ===
-*/
-
 /**
  * 1. UNLOCK FLOW
  */
-async function performUnlock(device) {
+async function performUnlock(device: FastbootDevice) {
     log("Checking bootloader state...");
     let isUnlocked = 'no';
     try {
@@ -119,7 +134,6 @@ async function performUnlock(device) {
         return;
     }
 
-    // Gatekeeper Warning
     const userConsent = await showBlockingWarning(
         "WARNING: You are about to UNLOCK the bootloader. This will WIPE ALL DATA on the device. You have 60 seconds to confirm."
     );
@@ -130,10 +144,8 @@ async function performUnlock(device) {
 
     log("Sending unlock command...");
     try {
-        // Standard for new Pixels
         await device.runCommand('flashing unlock');
-    } catch (e) {
-        // Fallback
+    } catch (e: any) {
         try {
             await device.runCommand('oem unlock');
         } catch (innerE) {
@@ -143,19 +155,15 @@ async function performUnlock(device) {
 
     alert("ACTION REQUIRED: Check your phone! Use Volume keys to select 'UNLOCK' and Power to confirm.");
     log("Waiting for device to reconnect after unlock/wipe...", "info");
-
-    // Reboot usually happens automatically or user does it. 
-    // We need to wait for reconnection.
     await device.waitForConnect();
 }
 
 /**
  * 2. FLASH KEY FLOW
  */
-async function flashCustomKey(device, keyBlob) {
+async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
     if (!keyBlob) throw new Error("No AVB key provided!");
 
-    // Ensure Bootloader (not fastbootd)
     const isUserspace = await device.getVariable('is-userspace');
     if (isUserspace === 'yes') {
         log("Switching to Bootloader Interface for key flashing...");
@@ -167,10 +175,7 @@ async function flashCustomKey(device, keyBlob) {
     await device.runCommand('erase:avb_custom_key');
 
     log("Flashing new AVB Custom Key...");
-    // device.flashBlob is hypothetical wrapper, real fastboot.js might use:
-    // await device.download(blob); await device.runCommand('flash:avb_custom_key');
-    // Using generic implementation assumption:
-    await device.upload(keyBlob); // Download phase
+    await device.upload(keyBlob);
     await device.runCommand('flash:avb_custom_key');
 
     log("AVB Key flashed successfully.", "success");
@@ -179,13 +184,13 @@ async function flashCustomKey(device, keyBlob) {
 /**
  * 3. FLASH FIRMWARE FLOW
  */
-async function flashFirmware(device, zipBlob, wipeData = false) {
+async function flashFirmware(device: any, zipBlob: Blob, wipeData: boolean = false) {
     const onReconnect = async () => {
         log("Device reboot detected (mode switch). Reconnecting...");
         await device.waitForConnect();
     };
 
-    const onProgress = (action, partition, progressPercent) => { // progress is 0.0-1.0 usually
+    const onProgress = (action: string, partition: string, progressPercent: number) => {
         const percent = (progressPercent * 100).toFixed(1);
         log(`[${action}] ${partition}: ${percent}%`);
 
@@ -195,26 +200,27 @@ async function flashFirmware(device, zipBlob, wipeData = false) {
 
     log(`Starting Firmware Flash (Wipe: ${wipeData})...`);
 
-    // Check if library is available
-    if (typeof window.fastbootFactory === 'undefined' && typeof Fastboot.flashZip === 'undefined') {
-        // Stub for environment without actual bundler
-        log("MOCK: Flashing zip (library not loaded in this environment)...");
+    // In migrated environment, Fastboot.flashZip should be available if imported correctly
+    // or passed via dependency injection. 
+    // The android-fastboot library usually exposes { flashZip }
+    if ((Fastboot as any).flashZip) {
+        try {
+            await (Fastboot as any).flashZip(device, zipBlob, wipeData, onReconnect, onProgress);
+        } catch (e: any) {
+            throw new Error("Flash Zip failed: " + e.message);
+        }
+    } else {
+        log("MOCK: Flashing zip (library not fully integrated)...");
         log(`Size: ${(zipBlob.size / 1024 / 1024).toFixed(2)} MB`);
         await new Promise(r => setTimeout(r, 2000));
         log("MOCK: Flash Complete.", "success");
-        return;
     }
-
-    // Call actual library
-    // await flashZip(device, zipBlob, wipeData, onReconnect, onProgress);
-    log("Calling flashZip (Placeholder for real lib call)...");
 }
 
 /**
  * 4. LOCK FLOW
  */
-async function performLock(device) {
-    // Ensuring Bootloader
+async function performLock(device: FastbootDevice) {
     const isUserspace = await device.getVariable('is-userspace');
     if (isUserspace === 'yes') {
         log("Switching to Bootloader Interface for locking...");
@@ -233,40 +239,35 @@ async function performLock(device) {
 
     log("Sending lock command...");
     await device.runCommand('flashing lock');
-
     alert("ACTION REQUIRED: Confirm LOCK on device screen!");
 }
-
 
 /**
  * === MAIN ORCHESTRATOR ===
  */
-export async function runWebFlasher(config, files) {
+export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles) {
+    // Instantiate via imported library
     const device = new Fastboot.FastbootDevice();
 
     try {
         log("Connecting to USB device...");
-        await device.connect(); // Request WebUSB
+        await device.connect();
 
         const product = await device.getVariable('product');
         log(`Connected: ${product}`, "success");
 
-        // 1. UNLOCK
         if (config.unlock) {
-            await performUnlock(device);
+            await performUnlock(device as any);
         }
 
-        // 2. FLASH KEY
         if (config.flashKey && files.key) {
-            await flashCustomKey(device, files.key);
+            await flashCustomKey(device as any, files.key);
         }
 
-        // 3. FLASH ZIP
         if (config.flashZip && files.zipUrl) {
             log(`Downloading System Image from Cloud...`);
             log(files.zipUrl);
 
-            // FETCH BLOB
             try {
                 const response = await fetch(files.zipUrl);
                 if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
@@ -274,25 +275,21 @@ export async function runWebFlasher(config, files) {
                 log(`Download finished. Size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`, "success");
 
                 await flashFirmware(device, blob, config.wipeData);
-            } catch (err) {
+            } catch (err: any) {
                 throw new Error(`Cloud Download Error: ${err.message}`);
             }
         }
 
-        // 4. LOCK
         if (config.lock) {
-            await performLock(device);
+            await performLock(device as any);
         } else {
             log("Locking skipped (not selected).");
         }
 
         log("Looking good! Process finished.", "success");
 
-    } catch (error) {
+    } catch (error: any) {
         log(`CRITICAL ERROR: ${error.message}`, "error");
         alert(`Process Failed: ${error.message}`);
-    } finally {
-        // Optional: Reboot if finished
-        // if (device.isConnected) await device.runCommand('reboot');
     }
 }

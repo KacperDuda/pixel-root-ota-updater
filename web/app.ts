@@ -1,16 +1,34 @@
+// Import Styles
+import 'bulma/css/bulma.min.css';
+import './style.css';
 
-import { runWebFlasher } from './flasher.js?v=2.3';
+// Import Logic
+import { runWebFlasher, FlasherConfig, ValidatedFiles } from './flasher';
+
+// Import ADB Libraries
+import { Adb } from '@yume-chan/adb';
+import AdbWebUsbBackend from '@yume-chan/adb-backend-webusb';
 
 // Configuration
 const BUCKET_NAME = "sabre-gcp-project-pixel-root-ota-updater-release";
 const INDEX_URL = `https://storage.googleapis.com/${BUCKET_NAME}/builds_index.json`;
 const PUBLIC_KEY_URL = `https://storage.googleapis.com/${BUCKET_NAME}/keys/avb_pkmd.bin`;
 
+// Interfaces
+interface BuildEntry {
+    device: string;
+    android_version: string;
+    build_date: string; // "2024..."
+    filename: string;
+    url: string;
+    timestamp: string;
+}
+
 // Variables
-let buildsList = [];
+let buildsList: BuildEntry[] = [];
 
 // Logger
-function log(msg, type = 'info') {
+function log(msg: string, type: 'info' | 'error' | 'success' = 'info') {
     const container = document.getElementById('log-container');
     if (!container) return;
 
@@ -22,18 +40,18 @@ function log(msg, type = 'info') {
 }
 
 // UI Elements
-const btnConnect = document.getElementById('connect-btn');
-const btnFlash = document.getElementById('flash-btn');
-const lblDevice = document.getElementById('device-name');
-const lblStatus = document.getElementById('connection-status');
-const selVersion = document.getElementById('version-select');
-const btnTheme = document.getElementById('theme-toggle');
+const btnConnect = document.getElementById('connect-btn') as HTMLButtonElement;
+const btnFlash = document.getElementById('flash-btn') as HTMLButtonElement;
+const lblDevice = document.getElementById('device-name') as HTMLElement;
+const lblStatus = document.getElementById('connection-status') as HTMLElement;
+const selVersion = document.getElementById('version-select') as HTMLSelectElement;
+const btnTheme = document.getElementById('theme-toggle') as HTMLButtonElement;
 
 // Inputs
-const chkUnlock = document.getElementById('chk-unlock');
-const chkFlashKey = document.getElementById('chk-flash-key');
-const chkFlashZip = document.getElementById('chk-flash-zip');
-const chkLock = document.getElementById('chk-lock');
+const chkUnlock = document.getElementById('chk-unlock') as HTMLInputElement;
+const chkFlashKey = document.getElementById('chk-flash-key') as HTMLInputElement;
+const chkFlashZip = document.getElementById('chk-flash-zip') as HTMLInputElement;
+const chkLock = document.getElementById('chk-lock') as HTMLInputElement;
 
 // --- THEME TOGGLE (Bulma) ---
 function toggleTheme() {
@@ -50,7 +68,8 @@ async function fetchBuilds() {
         if (!resp.ok) throw new Error("Index not found");
 
         const data = await resp.json();
-        buildsList = Array.isArray(data) ? data : (data.builds || []);
+        const rawList = Array.isArray(data) ? data : (data.builds || []);
+        buildsList = rawList as BuildEntry[];
 
         // Populate Select
         selVersion.innerHTML = '';
@@ -63,8 +82,8 @@ async function fetchBuilds() {
 
         buildsList.forEach((build, index) => {
             const opt = document.createElement('option');
-            opt.value = index; // Store index to retrieve obj later
-            // Use correct JSON keys from pixel_automator.py: { build_date, filename }
+            opt.value = index.toString();
+            // Correct keys: build_date, filename
             opt.text = `${build.build_date} - ${build.filename} (Signed)`;
             if (index === 0) opt.selected = true; // Auto select latest
             selVersion.add(opt);
@@ -72,11 +91,29 @@ async function fetchBuilds() {
 
         log(`Loaded ${buildsList.length} builds. Latest selected.`);
 
-    } catch (e) {
+    } catch (e: any) {
         log(`Failed to fetch builds: ${e.message}`, 'error');
         const opt = document.createElement('option');
         opt.text = "Error loading builds";
         selVersion.add(opt);
+    }
+}
+
+// --- ADB REBOOT HELPER ---
+async function tryRebootToBootloader() {
+    try {
+        log("Trying ADB Reboot (WebUSB)...");
+        const backend = await AdbWebUsbBackend.requestDevice({ filters: [{ vendorId: 0x18d1 }] });
+        if (!backend) return false;
+
+        const adb = await Adb.overWebUsb(backend);
+        log("ADB Connection established. sending reboot bootloader...");
+        await adb.subprocess.spawnAndWait("reboot bootloader");
+        log("Reboot command sent. Device should restart.");
+        return true;
+    } catch (e: any) {
+        log(`ADB Reboot failed: ${e.message}. Manual reboot required.`, 'error');
+        return false;
     }
 }
 
@@ -85,40 +122,50 @@ window.addEventListener('DOMContentLoaded', () => {
     fetchBuilds();
 
     // Theme
-    btnTheme.addEventListener('click', toggleTheme);
+    if (btnTheme) btnTheme.addEventListener('click', toggleTheme);
+
     // Init theme based on preference or default
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
         document.documentElement.setAttribute('data-theme', 'dark');
     }
 
     // Connect
-    btnConnect.addEventListener('click', async () => {
+    if (btnConnect) btnConnect.addEventListener('click', async () => {
         if (!navigator.usb) {
             alert("WebUSB not supported!");
             return;
         }
+
         try {
-            // Request permission
             const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x18d1 }] });
             if (device) {
-                // Update UI visually
-                document.getElementById('device-name').textContent = device.productName || "Pixel Device";
-                lblStatus.textContent = "CONNECTED";
-                lblStatus.classList.remove('is-dark');
-                lblStatus.classList.add('is-success');
+                if (lblDevice) lblDevice.textContent = device.productName || "Pixel Device";
+                if (lblStatus) {
+                    lblStatus.textContent = "CONNECTED";
+                    lblStatus.classList.remove('is-dark');
+                    lblStatus.classList.add('is-success');
+                }
 
-                // Show connect button as "Connected" or hide? 
-                // Bulma style: change button state
                 btnConnect.textContent = "Device Paired";
                 btnConnect.classList.remove('is-primary');
                 btnConnect.classList.add('is-success');
                 btnConnect.disabled = true;
 
-                // Enable Flash
                 btnFlash.disabled = false;
 
-                // Show helper tip
-                document.getElementById('fastboot-help').style.display = 'block';
+                const helpDiv = document.getElementById('fastboot-help');
+                if (helpDiv) {
+                    helpDiv.style.display = 'block';
+
+                    const body = helpDiv.querySelector('.message-body');
+                    if (body) {
+                        const rebootBtn = document.createElement('button');
+                        rebootBtn.className = "button is-small is-info mt-2";
+                        rebootBtn.textContent = "Attempt ADB Reboot to Bootloader";
+                        rebootBtn.onclick = tryRebootToBootloader;
+                        body.appendChild(rebootBtn);
+                    }
+                }
             }
         } catch (e) {
             console.error(e);
@@ -127,22 +174,21 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     // Start Flash
-    btnFlash.addEventListener('click', async () => {
-        // Validation
-        const selIdx = selVersion.value;
-        if (chkFlashZip.checked && (selIdx === "" || !buildsList[selIdx])) {
+    if (btnFlash) btnFlash.addEventListener('click', async () => {
+        const selIdx = parseInt(selVersion.value);
+        if (chkFlashZip.checked && (isNaN(selIdx) || !buildsList[selIdx])) {
             alert("Please select a valid System Version from the list.");
             return;
         }
 
         const selectedBuild = buildsList[selIdx];
 
-        const config = {
+        const config: FlasherConfig = {
             unlock: chkUnlock.checked,
             flashKey: chkFlashKey.checked,
             flashZip: chkFlashZip.checked,
             lock: chkLock.checked,
-            wipeData: false // Could be toggle
+            wipeData: false
         };
 
         btnFlash.disabled = true;
@@ -150,7 +196,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
         try {
             // --- Cloud Key Fetch Logic ---
-            let keyBlob = null;
+            let keyBlob: Blob | null = null;
             if (config.flashKey) {
                 log("Fetching AVB Public Key from Cloud...");
                 try {
@@ -158,18 +204,18 @@ window.addEventListener('DOMContentLoaded', () => {
                     if (!resp.ok) throw new Error("Failed to fetch Public Key from Cloud");
                     keyBlob = await resp.blob();
                     log("✅ Public Key fetched successfully.");
-                } catch (e) {
+                } catch (e: any) {
                     throw new Error("Could not download AVB Public Key: " + e.message);
                 }
             }
 
-            const files = {
+            const files: ValidatedFiles = {
                 key: keyBlob,
                 zipUrl: selectedBuild ? selectedBuild.url : null
             };
 
             await runWebFlasher(config, files);
-        } catch (e) {
+        } catch (e: any) {
             log(e.message, 'error');
         } finally {
             btnFlash.disabled = false;
@@ -177,4 +223,3 @@ window.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
-

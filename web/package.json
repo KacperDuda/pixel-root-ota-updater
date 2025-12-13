@@ -1,0 +1,27 @@
+{
+    "name": "pixel-root-ota-flasher-web",
+    "version": "2.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "lint": "eslint . --ext .ts"
+    },
+    "dependencies": {
+        "android-fastboot": "^0.0.8",
+        "bulma": "^0.9.4",
+        "@yume-chan/adb": "^0.0.21",
+        "@yume-chan/adb-backend-webusb": "^0.0.21",
+        "@yume-chan/adb-daemon-webusb": "^0.0.21",
+        "@yume-chan/struct": "^0.0.21",
+        "@yume-chan/stream-extra": "^0.0.21"
+    },
+    "devDependencies": {
+        "typescript": "^5.3.3",
+        "vite": "^5.0.0",
+        "eslint": "^8.56.0",
+        "@typescript-eslint/parser": "^6.19.0",
+        "@typescript-eslint/eslint-plugin": "^6.19.0",
+        "@types/w3c-web-usb": "^1.0.6"
+    }
+}

@@ -5,12 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pixel Root OTA Flasher</title>
-    <!-- Bulma: Modern CSS Framework (Boxy / Flexbox) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css"
-        integrity="sha384-HmYpsz2Aa9Gh3JlkCoh8kUJ2mUKJKTnkyC2Lzt8aLzpPOpnDe8KpFE2xNiBpMDou" crossorigin="anonymous">
-    <link rel="stylesheet" href="style.css">
-    <script type="module" src="app.js?v=2.3"></script>
-    <!-- Font Awesome for Icons -->
+    <title>Pixel Root OTA Flasher</title>
+    <!-- Bulma & Styles imported via JS in Vite -->
+    <script type="module" src="app.ts"></script>
+    <!-- Font Awesome (CDN is fine/easiest for icons without large bundle) -->
     <script defer src="https://use.fontawesome.com/releases/v5.15.4/js/all.js"
         integrity="sha384-rOA1PnstxnOBLzCLMcre8ybwbTmemjzdNlILg8O7z1lUkLXozs4DHonlDtnE7fpc"
         crossorigin="anonymous"></script>
@@ -37,6 +35,7 @@
                         </button>
                     </div>
                     <div class="level-item">
+                        <span id="device-name" class="mr-2 has-text-grey-light"></span>
                         <span class="tag is-dark" id="connection-status">DISCONNECTED</span>
                     </div>
                 </div>
