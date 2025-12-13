@@ -76,10 +76,24 @@ steps:
 
   # 8. Deploy Web Flasher (tylko po sukcesie)
   - name: 'gcr.io/cloud-builders/gsutil'
-    # Use -h to set metadata (Cache-Control: no-cache to force update)
-    # Use -m for parallel upload if many files (good practice)
     entrypoint: 'bash'
-    args: ['-c', 'gsutil -m -h "Cache-Control:no-cache,max-age=0" rsync -r web gs://${_WEB_BUCKET_NAME}']
+    args:
+      - '-c'
+      - |
+        echo "Deploying to Bucket: ${_WEB_BUCKET_NAME}"
+        # Safety check: Ensure variable is set
+        if [ -z "${_WEB_BUCKET_NAME}" ]; then
+          echo "ERROR: _WEB_BUCKET_NAME is not set. Please run 'terraform apply' to update the Trigger."
+          exit 1
+        fi
+        
+        # 1. Clean Bucket (User Request)
+        echo "Cleaning bucket..."
+        gsutil -m rm -rf "gs://${_WEB_BUCKET_NAME}/**" || true
+        
+        # 2. Copy New Files (with No-Cache headers)
+        echo "Uploading new files..."
+        gsutil -m -h "Cache-Control:no-cache,max-age=0" rsync -r web "gs://${_WEB_BUCKET_NAME}"
 
 
 
