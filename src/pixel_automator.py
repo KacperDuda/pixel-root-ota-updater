@@ -194,6 +194,40 @@ def main():
             sys.exit(1)
 
         filename = scraped_filename
+        
+        # --- OPTIMIZATION START: Check Cloud Index BEFORE doing anything expensive ---
+        # If we already built this exact file, skip everything.
+        bucket_env = os.environ.get('BUCKET_NAME') or os.environ.get('_BUCKET_NAME')
+        if bucket_env and storage and not args.local_file:
+            log("🔎 Checking Cloud Index for existing build...")
+            try:
+                index_filename = "builds_index.json"
+                if download_gcs_file(bucket_env, index_filename, index_filename):
+                    with open(index_filename, 'r') as f:
+                        indices = json.load(f)
+                    
+                    # Expected output filename (we know standard naming convention or rely on input filename match if stored)
+                    # Actually, our index stores "filename" as the OUTPUT filename (patched).
+                    # But we can check if any entry has a 'url' containing our input filename or based on date?
+                    # Better: Check if we have an entry with 'android_version' or 'build_date' matching our scraped data?
+                    # Scraped filename: e.g. "shiba-ota-ap1a.240505.005-fac42312.zip"
+                    # We can check if ANY entry in index was built from this input. 
+                    # Our index schema is: device, android_version, build_date, filename (output), url.
+                    # It doesn't store INPUT sha256 explicitly in the top level lists.
+                    
+                    # Strategy: Check if the *output* file for this *input* likely already exists.
+                    # Output name format: ksu_patched_{filename}
+                    expected_output = f"ksu_patched_{filename}"
+                    
+                    for entry in indices:
+                         if entry.get("filename") == expected_output:
+                             log(f"✅ Build already exists in Cloud Index: {expected_output}")
+                             log("🎉 Nothing to do. Exiting.")
+                             sys.exit(0)
+            except Exception as e:
+                log(f"⚠️  Index check failed (ignoring): {e}")
+        # --- OPTIMIZATION END ---
+
         potential_cached_path = os.path.join(OUTPUT_DIR, scraped_filename)
         
         # Check if already downloaded
