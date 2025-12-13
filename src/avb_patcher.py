@@ -112,14 +112,7 @@ def extract_patched_boot_images(zip_path, output_dir):
         subprocess.check_call([
             "avbroot", "ota", "extract",
             "--input", zip_path,
-            "--directory", output_dir,
-            "--image", "boot",
-            "--image", "init_boot",
-            "--image", "vendor_boot",
-            "--image", "vbmeta",
-            "--image", "vbmeta_system",
-            "--image", "vbmeta_vendor",
-            "--image", "dtbo"
+            "--directory", output_dir
         ])
         print_status("EXTRACT", "SUCCESS", "Boot images extracted", Color.GREEN)
     except Exception as e:
