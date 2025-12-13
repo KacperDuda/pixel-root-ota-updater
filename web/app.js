@@ -3,17 +3,31 @@ import { runWebFlasher } from './flasher.js';
 
 // Configuration
 const BUCKET_NAME = "sabre-gcp-project-pixel-root-ota-updater-release";
-const MANIFEST_URL = `https://storage.googleapis.com/${BUCKET_NAME}/latest.json`;
+const INDEX_URL = `https://storage.googleapis.com/${BUCKET_NAME}/builds_index.json`;
 
 // Variables
-let selectedZipFile = null;
 let selectedKeyFile = null;
+let buildsList = [];
+
+// Logger
+function log(msg, type = 'info') {
+    const container = document.getElementById('log-container');
+    if (!container) return;
+
+    const timestamp = new Date().toLocaleTimeString();
+    const prefix = type === 'error' ? '❌ ' : type === 'success' ? '✅ ' : 'ℹ️ ';
+    // Append text line to pre
+    container.textContent += `[${timestamp}] ${prefix}${msg}\n`;
+    container.scrollTop = container.scrollHeight;
+}
 
 // UI Elements
 const btnConnect = document.getElementById('connect-btn');
 const btnFlash = document.getElementById('flash-btn');
 const lblDevice = document.getElementById('device-name');
 const lblStatus = document.getElementById('connection-status');
+const selVersion = document.getElementById('version-select');
+const btnTheme = document.getElementById('theme-toggle');
 
 // Inputs
 const chkUnlock = document.getElementById('chk-unlock');
@@ -21,101 +35,157 @@ const chkFlashKey = document.getElementById('chk-flash-key');
 const chkFlashZip = document.getElementById('chk-flash-zip');
 const chkLock = document.getElementById('chk-lock');
 const fileInputKey = document.getElementById('file-key');
-const fileInputZip = document.getElementById('file-zip');
 
-// Fetch logic (Optional Auto-Download future expansion)
-async function fetchCloudInfo() {
+// --- THEME TOGGLE (Bulma) ---
+function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.getAttribute('data-theme') === 'dark';
+    html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+}
+
+// --- FETCH BUILDS ---
+async function fetchBuilds() {
     try {
-        const resp = await fetch(MANIFEST_URL);
-        if (resp.ok) {
-            const data = await resp.json();
-            document.getElementById('cloud-info').style.display = 'block';
-            document.getElementById('latest-build-date').textContent = data.date;
-            document.getElementById('target-file').textContent = data.image_url;
-            console.log("Cloud manifest loaded.");
+        log("Fetching build index from cloud...");
+        const resp = await fetch(INDEX_URL);
+        if (!resp.ok) throw new Error("Index not found");
+
+        const data = await resp.json();
+        // Expecting { builds: [ { date:..., id:..., url:... }, ... ] }
+        // or just an array list. Assuming our format is list or similar. 
+        // Based on pixel_automator.py: builds_index.json is a list of dicts.
+
+        buildsList = Array.isArray(data) ? data : (data.builds || []);
+
+        // Populate Select
+        selVersion.innerHTML = '';
+        if (buildsList.length === 0) {
+            const opt = document.createElement('option');
+            opt.text = "No builds found";
+            selVersion.add(opt);
+            return;
         }
-    } catch (e) { console.warn("Cloud info fetch failed", e); }
+
+        // Sort desc date (assuming API might not)
+        // buildsList.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+        buildsList.forEach((build, index) => {
+            const opt = document.createElement('option');
+            opt.value = index; // Store index to retrieve obj later
+            opt.text = `${build.date} - ${build.id} (Signed)`;
+            if (index === 0) opt.selected = true; // Auto select latest
+            selVersion.add(opt);
+        });
+
+        log(`Loaded ${buildsList.length} builds. Latest selected.`);
+
+    } catch (e) {
+        log(`Failed to fetch builds: ${e.message}`, 'error');
+        const opt = document.createElement('option');
+        opt.text = "Error loading builds";
+        selVersion.add(opt);
+    }
 }
 
 // Event Listeners
 window.addEventListener('DOMContentLoaded', () => {
-    fetchCloudInfo();
+    fetchBuilds();
 
-    // File Selection Handlers
+    // Theme
+    btnTheme.addEventListener('click', toggleTheme);
+    // Init theme based on preference or default
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    // Key File
     fileInputKey.addEventListener('change', (e) => {
         selectedKeyFile = e.target.files[0];
-        console.log("Key file selected:", selectedKeyFile?.name);
+        const nameLabel = document.getElementById('file-key-name');
+        if (selectedKeyFile) {
+            nameLabel.textContent = selectedKeyFile.name;
+            log(`AVB Key selected: ${selectedKeyFile.name}`);
+        } else {
+            nameLabel.textContent = "No file selected";
+        }
     });
 
-    fileInputZip.addEventListener('change', (e) => {
-        selectedZipFile = e.target.files[0];
-        console.log("Zip file selected:", selectedZipFile?.name);
-    });
-
-    // Checkbox Logic
-    chkFlashKey.addEventListener('change', () => {
-        // Validation visual cues could go here
-    });
-
-    // 1. Connect Button (Just checks WebUSB availability here, actual connect is in flasher flow or we can do pre-check)
+    // Connect
     btnConnect.addEventListener('click', async () => {
-        // In this architecture, connection is part of the flow OR pre-check.
-        // Let's do a pre-check to show device name.
         if (!navigator.usb) {
-            alert("WebUSB not supported in this browser!");
+            alert("WebUSB not supported!");
             return;
         }
-
         try {
-            // Request permission early to populate UI
+            // Request permission
             const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x18d1 }] });
             if (device) {
-                lblDevice.textContent = device.productName || "Pixel Device";
-                lblStatus.textContent = "AUTHORIZED";
-                lblStatus.classList.add("connected");
+                // Update UI visually
+                document.getElementById('device-name').value = device.productName || "Pixel Device"; // Input readonly
+                lblStatus.textContent = "CONNECTED";
+                lblStatus.classList.remove('is-dark');
+                lblStatus.classList.add('is-success');
+
+                // Show connect button as "Connected" or hide? 
+                // Bulma style: change button state
+                btnConnect.textContent = "Device Paired";
+                btnConnect.classList.remove('is-primary');
+                btnConnect.classList.add('is-success');
+                btnConnect.disabled = true;
+
+                // Enable Flash
                 btnFlash.disabled = false;
-                btnConnect.style.display = 'none'; // Hide connect button after success
+
+                // Show helper tip
+                document.getElementById('fastboot-help').style.display = 'block';
             }
         } catch (e) {
             console.error(e);
+            log("Connection cancelled or failed.", "error");
         }
     });
 
-    // 2. Start Flash Button
+    // Start Flash
     btnFlash.addEventListener('click', async () => {
-        // VALIDATION
+        // Validation
         if (chkFlashKey.checked && !selectedKeyFile) {
-            alert("Please select an AVB Key file!");
+            alert("Please select an AVB Public Key (.bin) to flash!");
             return;
         }
-        // For Zip, we might allow undefined if user just wants to unlock/lock/key
-        if (chkFlashZip.checked && !selectedZipFile) {
-            // If we implemented cloud download, we'd handle it here. 
-            // For now, strict file input.
-            // alert("Please select a System Zip file!");
-            // return; 
-            // Mocking internal zip if testing without file
+
+        // Get Selected Build
+        const selIdx = selVersion.value;
+        if (chkFlashZip.checked && (selIdx === "" || !buildsList[selIdx])) {
+            alert("Please select a valid System Version from the list.");
+            return;
         }
+
+        const selectedBuild = buildsList[selIdx];
 
         const config = {
             unlock: chkUnlock.checked,
             flashKey: chkFlashKey.checked,
             flashZip: chkFlashZip.checked,
             lock: chkLock.checked,
-            wipeData: false // Could add another checkbox for this
+            wipeData: false // Could be toggle
         };
 
         const files = {
             key: selectedKeyFile,
-            zip: selectedZipFile
+            zipUrl: selectedBuild ? selectedBuild.url : null // Pass URL instead of File object
         };
 
         btnFlash.disabled = true;
+        btnFlash.classList.add('is-loading');
 
-        // Handover to Controller
-        await runWebFlasher(config, files);
-
-        btnFlash.disabled = false;
+        try {
+            await runWebFlasher(config, files);
+        } catch (e) {
+            log(e.message, 'error');
+        } finally {
+            btnFlash.disabled = false;
+            btnFlash.classList.remove('is-loading');
+        }
     });
 });
 

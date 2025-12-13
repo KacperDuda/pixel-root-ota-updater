@@ -28,7 +28,13 @@ export async function showBlockingWarning(message) {
     if (!modal) return false;
 
     msgBody.textContent = message;
-    modal.style.display = 'flex'; // Show
+
+    // Native Dialog API
+    if (typeof modal.showModal === 'function') {
+        modal.showModal();
+    } else {
+        modal.style.display = 'block'; // Fallback
+    }
 
     let timeLeft = 60;
     timerDisplay.textContent = `${timeLeft}`;
@@ -38,7 +44,11 @@ export async function showBlockingWarning(message) {
 
         const cleanup = () => {
             clearInterval(timerInterval);
-            modal.style.display = 'none';
+            if (typeof modal.close === 'function') {
+                modal.close();
+            } else {
+                modal.style.display = 'none';
+            }
             // Remove listeners to prevent dupes
             confirmBtn.onclick = null;
             cancelBtn.onclick = null;
@@ -255,9 +265,21 @@ export async function runWebFlasher(config, files) {
         }
 
         // 3. FLASH ZIP
-        if (config.flashZip && files.zip) {
-            // Note: Wipe logic should be decided by UI config, defaulting to false for updates
-            await flashFirmware(device, files.zip, config.wipeData);
+        if (config.flashZip && files.zipUrl) {
+            log(`Downloading System Image from Cloud...`);
+            log(files.zipUrl);
+
+            // FETCH BLOB
+            try {
+                const response = await fetch(files.zipUrl);
+                if (!response.ok) throw new Error(`Download failed: ${response.statusText}`);
+                const blob = await response.blob();
+                log(`Download finished. Size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`, "success");
+
+                await flashFirmware(device, blob, config.wipeData);
+            } catch (err) {
+                throw new Error(`Cloud Download Error: ${err.message}`);
+            }
         }
 
         // 4. LOCK
