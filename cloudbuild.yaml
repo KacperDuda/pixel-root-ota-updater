@@ -76,7 +76,10 @@ steps:
 
   # 8. Deploy Web Flasher (tylko po sukcesie)
   - name: 'gcr.io/cloud-builders/gsutil'
-    args: ['rsync', '-r', 'web', 'gs://${_WEB_BUCKET_NAME}']
+    # Use -h to set metadata (Cache-Control: no-cache to force update)
+    # Use -m for parallel upload if many files (good practice)
+    entrypoint: 'bash'
+    args: ['-c', 'gsutil -m -h "Cache-Control:no-cache,max-age=0" rsync -r web gs://${_WEB_BUCKET_NAME}']
 
 
 
