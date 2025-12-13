@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css"
         integrity="sha384-HmYpsz2Aa9Gh3JlkCoh8kUJ2mUKJKTnkyC2Lzt8aLzpPOpnDe8KpFE2xNiBpMDou" crossorigin="anonymous">
     <link rel="stylesheet" href="style.css">
-    <script type="module" src="app.js?v=2.1"></script>
+    <script type="module" src="app.js?v=2.3"></script>
     <!-- Font Awesome for Icons -->
     <script defer src="https://use.fontawesome.com/releases/v5.15.4/js/all.js"
         integrity="sha384-rOA1PnstxnOBLzCLMcre8ybwbTmemjzdNlILg8O7z1lUkLXozs4DHonlDtnE7fpc"
@@ -89,19 +89,16 @@
                             <p class="help">Fetched from OTA Cloud Repository</p>
                         </div>
 
-                        <!-- AVB Key Input -->
+                        <!-- AVB Key Input (Cloud Managed) -->
                         <div class="field">
-                            <label class="label">AVB Public Key (.bin)</label>
-                            <div class="file has-name is-fullwidth">
-                                <label class="file-label">
-                                    <input class="file-input" type="file" id="file-key" accept=".bin">
-                                    <span class="file-cta">
-                                        <span class="file-icon"><i class="fas fa-upload"></i></span>
-                                        <span class="file-label">Choose File...</span>
-                                    </span>
-                                    <span class="file-name" id="file-key-name">No file selected</span>
-                                </label>
+                            <label class="label">AVB Public Key</label>
+                            <div class="control">
+                                <span class="tag is-info is-light is-medium">
+                                    <i class="fas fa-cloud-download-alt mr-2"></i>
+                                    Cloud Managed (avb_pkmd.bin)
+                                </span>
                             </div>
+                            <p class="help">Key is automatically fetched from the build server.</p>
                         </div>
 
                         <hr>

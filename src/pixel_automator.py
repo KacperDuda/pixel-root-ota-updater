@@ -111,7 +111,49 @@ def verify_bucket_access(bucket_name):
         log_error("   Verify 'roles/storage.objectAdmin' is assigned to the Cloud Build Service Account.")
         sys.exit(1)
 
+import subprocess
 
+def extract_and_upload_public_key(bucket_name, private_key_path):
+    """
+    Extracts the public key from the private key and ensures it exists in the bucket.
+    """
+    if not bucket_name or not storage:
+        return
+        
+    public_key_blob = "keys/avb_pkmd.bin"
+    log(f"🔑 Checking if Public Key exists in bucket: {public_key_blob}")
+    
+    try:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(public_key_blob)
+        
+        if blob.exists():
+            log("   Public Key already exists in cloud. Skipping generation.")
+            return
+
+        log("   Public Key missing. generating from Private Key...")
+        output_path = "/tmp/avb_pkmd.bin"
+        
+        # Use avbtool (installed within container)
+        # avbtool extract_public_key --key <private_key> --output <output>
+        cmd = [
+            "/usr/local/bin/avbtool.py", "extract_public_key",
+            "--key", private_key_path,
+            "--output", output_path
+        ]
+        
+        subprocess.check_call(cmd)
+        
+        if os.path.exists(output_path):
+            log(f"   Uploading generated Public Key to {public_key_blob}...")
+            upload_gcs_file(bucket_name, output_path, public_key_blob)
+            log("✅ Public Key published successfully.")
+        else:
+            log_error("Failed to generate Public Key (file not found after command).")
+            
+    except Exception as e:
+        log_error(f"Failed to publish Public Key: {e}")
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local-file', help='Local ZIP file')
@@ -177,6 +219,11 @@ def main():
     with open(key_path, 'r') as kf:
         key_content = kf.read()
     key_hash = verifier.calculate_string_sha256(key_content)
+    
+    # --- AUTOMATION: Publish Public Key ---
+    if bucket_env and storage:
+        extract_and_upload_public_key(bucket_env, key_path)
+    # --------------------------------------
 
     # 2. File Resolution
     if args.local_file:

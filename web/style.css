@@ -1,59 +1,117 @@
-/* Custom Overrides for Pico.css */
+/* Global Variables */
 :root {
-    --primary: #bb86fc;
-    --primary-hover: #9955e8;
-    --primary-focus: rgba(187, 134, 252, 0.125);
-    --inverse: #121212;
+    --primary-color: #00d1b2;
+    --bg-color: #ffffff;
+    --text-color: #363636;
+    --box-bg: #ffffff;
+    --box-shadow: 0 0.5em 1em -0.125em rgba(10, 10, 10, 0.1);
+    --input-bg: #ffffff;
+    --input-border: #dbdbdb;
+    --input-text: #363636;
 }
 
-body {
-    /* Pico handles dark mode automatically via data-theme="dark" */
+/* Dark Theme Variables */
+[data-theme="dark"] {
+    --bg-color: #121212;
+    --text-color: #e0e0e0;
+    --box-bg: #1e1e1e;
+    --box-shadow: 0 0.5em 1em -0.125em rgba(0, 0, 0, 0.5);
+    --input-bg: #2c2c2c;
+    --input-border: #444;
+    --input-text: #e0e0e0;
+
+    /* Bulma Overrides for Dark Mode */
+    --bulma-body-background-color: #121212;
+    --bulma-text: #e0e0e0;
+    --bulma-title-color: #ffffff;
+    --bulma-subtitle-color: #b0b0b0;
+    --bulma-box-background-color: #1e1e1e;
+    --bulma-input-background-color: #2c2c2c;
+    --bulma-input-color: #e0e0e0;
+    --bulma-input-border-color: #444;
 }
 
-/* Status Badge */
-.status-badge {
-    padding: 3px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    text-transform: uppercase;
+/* Body */
+body,
+html {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+    height: 100%;
 }
 
-.status-badge.disconnected {
-    background-color: #333;
-    color: #888;
+/* Bulma Component Overrides with CSS Variables */
+.box {
+    background-color: var(--box-bg) !important;
+    color: var(--text-color) !important;
+    box-shadow: var(--box-shadow) !important;
 }
 
-.status-badge.connected {
-    background-color: var(--primary);
-    color: #000;
+.title {
+    color: var(--text-color) !important;
+}
+
+.subtitle {
+    color: var(--text-color) !important;
+    opacity: 0.8;
+}
+
+.label {
+    color: var(--text-color) !important;
+}
+
+.checkbox {
+    color: var(--text-color) !important;
+}
+
+.checkbox:hover {
+    color: var(--primary-color) !important;
+}
+
+/* Inputs / Selects */
+.input,
+.textarea,
+.select select,
+.file-cta,
+.file-name {
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border-color: var(--input-border) !important;
+}
+
+.select select::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Navbar / Level */
+.level-item .title {
+    color: var(--text-color) !important;
 }
 
 /* Log Container */
 #log-container {
     font-family: 'Courier New', Courier, monospace;
     font-size: 0.85rem;
-    white-space: pre-wrap; /* Wrap long lines */
+    white-space: pre-wrap;
+    /* Often dark even in light mode for "terminal" feel, but let's match theme */
+    color: #00ff00;
+    /* Distinct terminal color */
 }
 
-.log-err {
-    color: #ff6b6b;
+/* Scrollbar styling for dark mode */
+[data-theme="dark"] ::-webkit-scrollbar {
+    width: 10px;
 }
 
-.log-success {
-    color: #51cf66;
+[data-theme="dark"] ::-webkit-scrollbar-track {
+    background: #1e1e1e;
 }
 
-/* Modal Timer */
-#modal-timer {
-    font-variant-numeric: tabular-nums;
-    color: #e03131;
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 5px;
 }
 
-/* Custom Mark color */
-mark {
-    background-color: #fcc2d7;
-    color: #a61e4d;
-    padding: 2px 6px;
-    border-radius: 4px;
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }

@@ -1,12 +1,12 @@
 
-import { runWebFlasher } from './flasher.js?v=2.1';
+import { runWebFlasher } from './flasher.js?v=2.3';
 
 // Configuration
 const BUCKET_NAME = "sabre-gcp-project-pixel-root-ota-updater-release";
 const INDEX_URL = `https://storage.googleapis.com/${BUCKET_NAME}/builds_index.json`;
+const PUBLIC_KEY_URL = `https://storage.googleapis.com/${BUCKET_NAME}/keys/avb_pkmd.bin`;
 
 // Variables
-let selectedKeyFile = null;
 let buildsList = [];
 
 // Logger
@@ -34,7 +34,6 @@ const chkUnlock = document.getElementById('chk-unlock');
 const chkFlashKey = document.getElementById('chk-flash-key');
 const chkFlashZip = document.getElementById('chk-flash-zip');
 const chkLock = document.getElementById('chk-lock');
-const fileInputKey = document.getElementById('file-key');
 
 // --- THEME TOGGLE (Bulma) ---
 function toggleTheme() {
@@ -51,10 +50,6 @@ async function fetchBuilds() {
         if (!resp.ok) throw new Error("Index not found");
 
         const data = await resp.json();
-        // Expecting { builds: [ { date:..., id:..., url:... }, ... ] }
-        // or just an array list. Assuming our format is list or similar. 
-        // Based on pixel_automator.py: builds_index.json is a list of dicts.
-
         buildsList = Array.isArray(data) ? data : (data.builds || []);
 
         // Populate Select
@@ -66,13 +61,11 @@ async function fetchBuilds() {
             return;
         }
 
-        // Sort desc date (assuming API might not)
-        // buildsList.sort((a,b) => new Date(b.date) - new Date(a.date));
-
         buildsList.forEach((build, index) => {
             const opt = document.createElement('option');
             opt.value = index; // Store index to retrieve obj later
-            opt.text = `${build.date} - ${build.id} (Signed)`;
+            // Use correct JSON keys from pixel_automator.py: { build_date, filename }
+            opt.text = `${build.build_date} - ${build.filename} (Signed)`;
             if (index === 0) opt.selected = true; // Auto select latest
             selVersion.add(opt);
         });
@@ -98,18 +91,6 @@ window.addEventListener('DOMContentLoaded', () => {
         document.documentElement.setAttribute('data-theme', 'dark');
     }
 
-    // Key File
-    fileInputKey.addEventListener('change', (e) => {
-        selectedKeyFile = e.target.files[0];
-        const nameLabel = document.getElementById('file-key-name');
-        if (selectedKeyFile) {
-            nameLabel.textContent = selectedKeyFile.name;
-            log(`AVB Key selected: ${selectedKeyFile.name}`);
-        } else {
-            nameLabel.textContent = "No file selected";
-        }
-    });
-
     // Connect
     btnConnect.addEventListener('click', async () => {
         if (!navigator.usb) {
@@ -121,7 +102,7 @@ window.addEventListener('DOMContentLoaded', () => {
             const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x18d1 }] });
             if (device) {
                 // Update UI visually
-                document.getElementById('device-name').value = device.productName || "Pixel Device"; // Input readonly
+                document.getElementById('device-name').textContent = device.productName || "Pixel Device";
                 lblStatus.textContent = "CONNECTED";
                 lblStatus.classList.remove('is-dark');
                 lblStatus.classList.add('is-success');
@@ -148,12 +129,6 @@ window.addEventListener('DOMContentLoaded', () => {
     // Start Flash
     btnFlash.addEventListener('click', async () => {
         // Validation
-        if (chkFlashKey.checked && !selectedKeyFile) {
-            alert("Please select an AVB Public Key (.bin) to flash!");
-            return;
-        }
-
-        // Get Selected Build
         const selIdx = selVersion.value;
         if (chkFlashZip.checked && (selIdx === "" || !buildsList[selIdx])) {
             alert("Please select a valid System Version from the list.");
@@ -170,15 +145,29 @@ window.addEventListener('DOMContentLoaded', () => {
             wipeData: false // Could be toggle
         };
 
-        const files = {
-            key: selectedKeyFile,
-            zipUrl: selectedBuild ? selectedBuild.url : null // Pass URL instead of File object
-        };
-
         btnFlash.disabled = true;
         btnFlash.classList.add('is-loading');
 
         try {
+            // --- Cloud Key Fetch Logic ---
+            let keyBlob = null;
+            if (config.flashKey) {
+                log("Fetching AVB Public Key from Cloud...");
+                try {
+                    const resp = await fetch(PUBLIC_KEY_URL);
+                    if (!resp.ok) throw new Error("Failed to fetch Public Key from Cloud");
+                    keyBlob = await resp.blob();
+                    log("✅ Public Key fetched successfully.");
+                } catch (e) {
+                    throw new Error("Could not download AVB Public Key: " + e.message);
+                }
+            }
+
+            const files = {
+                key: keyBlob,
+                zipUrl: selectedBuild ? selectedBuild.url : null
+            };
+
             await runWebFlasher(config, files);
         } catch (e) {
             log(e.message, 'error');
