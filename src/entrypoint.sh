@@ -7,7 +7,8 @@ EXIT_CODE=$?
 if [ $EXIT_CODE -eq 0 ]; then
     echo "[ENTRYPOINT] Kopiowanie wyników do /app/output..."
     cp ksu_patched_*.zip /app/output/ 2>/dev/null
-    cp build_status.json /app/output/ 2>/dev/null
+    cp *.csig /app/output/ 2>/dev/null
+    cp *.json /app/output/ 2>/dev/null
     
     if [ "$(ls -A /app/output/)" ]; then
         # Fix permissions for host user (since we run as root inside Docker)

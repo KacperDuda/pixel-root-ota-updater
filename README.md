@@ -19,29 +19,59 @@ It creates a verifiable, signed OTA update zip that can be flashed via `adb side
 1.  **Bootloader Unlock:** Must stay unlocked (or be re-locked with custom keys - advanced).
 2.  **Backups:** Always recommended before flashing system updates.
 
-## 🚀 Quick Start (Local Docker)
+## 💻 Local Developmnent (Offline Mode)
 
-The easiest way to run the patcher is via Docker. It handles all dependencies (avbroot, python, payload dumping).
+You can run the entire pipeline locally without touching Google Cloud.
 
-### 1. Build the Image
+### Prerequisities (Linux)
+1.  **WebUSB Permissions**: Allow Chrome to access your phone.
+    ```bash
+    echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0666", GROUP="plugdev"' | sudo tee /etc/udev/rules.d/51-android.rules
+    sudo udevadm control --reload-rules && sudo udevadm trigger
+    # REPLUG DEVICE
+    ```
+2.  **Private Key**: Ensure `cyber_rsa4096_private.pem` is in the project root.
+
+### One-Click Run
+We provide a helper script to fix permissions, generate keys, and run the builder:
 ```bash
-docker build -t pixel_builder .
+./run_local_full.sh
 ```
 
-### 2. Run Patcher
-Mount your output directory and private key:
+### Manual Commands
+If you prefer running Docker manually:
+
+**1. Build Image**
+```bash
+docker build -t pixel-automator:latest .
+```
+
+**2. Generate AVB Key (Required for flashing)**
+```bash
+docker run --rm --entrypoint /usr/bin/python3 \
+  -v $(pwd):/work -w /work \
+  pixel-automator:latest \
+  /usr/local/bin/avbtool.py extract_public_key --key cyber_rsa4096_private.pem --output output/keys/avb_pkmd.bin
+```
+
+**3. Run Builder**
 ```bash
 docker run --rm -it \
-    -v "$(pwd)/output:/app/output" \
-    -v "$(pwd)/cyber_rsa4096_private.pem:/app/cyber_rsa4096_private.pem" \
-    pixel_builder --skip-hash-check
+  -e _DEVICE_CODENAME=frankel \
+  -v $(pwd)/output:/app/output \
+  -v $(pwd)/cyber_rsa4096_private.pem:/app/cyber_rsa4096_private.pem \
+  pixel-automator:latest
 ```
 
-**What happens next:**
-1.  **Auto-Download:** Scrapes Google's OTA site for the latest image for your device (default: `frankel`).
-2.  **Smart Filtering:** Prioritizes EMEA/Global builds over carrier-specific ones (Verizon/Japan).
-3.  **Patching:** Uses `avbroot` to inject Magisk directly into `payload.bin` and resign the payload with your key.
-4.  **Result:** A closed, signed `ksu_patched_*.zip` ready for flashing.
+### 🌐 Web Interface (Local)
+The web interface detects `localhost` and automatically serves builds from your local `output` folder.
+
+```bash
+cd web
+npm run dev
+# Open http://localhost:5173
+```
+Flashing will happen directly from your hard drive (Offline).
 
 ## ☁️ Cloud Architecture
 

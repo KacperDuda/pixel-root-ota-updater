@@ -390,41 +390,41 @@ def main():
     # 8. Custota
     avb_patcher.generate_custota_csig(output_filename, key_path)
     
-    # 8. Report
+    # 8. Report & Custota JSON
     final_output_sha256 = verifier.calculate_sha256(output_filename)
     print(f"Final Visual Hash: {get_visual_hash(final_output_sha256)}")
     
     status = "success"
-    now = datetime.now()
     
+    # Generate frankel.json for Custota
+    # Custota requires a URL or Relative Path. Absolute paths (starting with /) fail validation.
+    # We use a relative path (just the filename) assuming the JSON and ZIP are hosted in the same dir.
+    # This allows flexibility (http://server/builds/frankel.json -> relative zip lookup).
+    url_prefix = "." 
+    
+    custota_json_name = f"{DEVICE_CODENAME}.json"
+    csig_path = f"{output_filename}.csig"
+    
+    avb_patcher.generate_custota_json(output_filename, csig_path, DEVICE_CODENAME, url_prefix, custota_json_name)
+    
+    # Also keep the detailed build log for legacy/debugging
     build_info = {
         "build_meta": {
-            "device": DEVICE_CODENAME,
-            "date": datetime.now(timezone.utc).isoformat(),
-            "status": status,
-            "last_successful_build": now.strftime("%Y-%m-%d %H:%M:%S") if status == "success" else None,
-            "mode": "Local File" if args.local_file else "Auto Download",
-            "from_cache": used_cached_file,
-            "key_hash": key_hash
-        },
-        "input": {
-            "filename": os.path.basename(filename),
-            "sha256": sha256,
-            "google_signature_verified": True
+             "device": DEVICE_CODENAME,
+             "status": status,
+             "timestamp": datetime.now(timezone.utc).isoformat()
         },
         "output": {
             "filename": output_filename,
             "sha256": final_output_sha256,
-            "format": "flashable_update_zip",
-            "usage": f"fastboot update {output_filename}",
-            "signed_by": os.path.basename(key_path)
+            "csig": csig_path
         }
     }
     
     with open(OUTPUT_JSON, "w") as f:
         json.dump(build_info, f, indent=4)
         
-    print_status("DONE", "SUCCESS", f"Report saved to {OUTPUT_JSON}", Color.GREEN)
+    print_status("DONE", "SUCCESS", f"Report saved to {OUTPUT_JSON} and {custota_json_name}", Color.GREEN)
 
     # 9. Cloud Upload (if bucket defined)
     bucket_env = os.environ.get('BUCKET_NAME') or os.environ.get('_BUCKET_NAME')
@@ -522,6 +522,40 @@ def main():
             
         upload_gcs_file(bucket_env, index_filename, index_filename)
         log("✅ Central index updated.")
+
+    # 10. Local Index Update (Always run to support Local Mode)
+    # Ensure date_str is available
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+    local_index_path = os.path.join(OUTPUT_DIR, "builds_index.json")
+    local_index = []
+    
+    if os.path.exists(local_index_path):
+        try:
+            with open(local_index_path, 'r') as f:
+                local_index = json.load(f)
+        except: pass
+
+    # Add current build
+    new_local_entry = {
+        "device": DEVICE_CODENAME,
+        "android_version": os.path.basename(filename).split('-')[2] if len(os.path.basename(filename).split('-')) > 2 else "unknown",
+        "build_date": date_str,
+        "filename": os.path.basename(output_filename),
+        "url": f"/builds/{os.path.basename(output_filename)}", # Local Web Path
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Deduplicate (remove old entry with same filename)
+    local_index = [x for x in local_index if x.get("filename") != new_local_entry["filename"]]
+    local_index.append(new_local_entry)
+    
+    # Sort by date desc
+    local_index.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    
+    with open(local_index_path, "w") as f:
+        json.dump(local_index, f, indent=4)
+        
+    log(f"✅ Local build index updated: {local_index_path}")
 
 
 if __name__ == "__main__":

@@ -101,7 +101,36 @@ def generate_custota_csig(output_filename, key_path):
          ])
          print_status("CUSTOTA", "SUCCESS", "Signature generated", Color.GREEN)
     except Exception as e:
+         subprocess.check_call([
+             "custota-tool", "gen-csig",
+             "--input", output_filename,
+             "--key", key_path,
+             "--cert", cert_path,
+             "--output", csig_path
+         ])
+         print_status("CUSTOTA", "SUCCESS", "Signature generated", Color.GREEN)
+    except Exception as e:
         log("⚠️  Custota tool failed or not found. Skipping metadata.")
+
+def generate_custota_json(output_filename, csig_filename, device_codename, url_prefix, output_json_path):
+    log("Generating Custota JSON...")
+    # custota-tool gen-update-info --location <url_to_zip> --file <json_file>
+    # The tool updates the file if it exists, or creates it.
+    
+    zip_url = f"{url_prefix}/{os.path.basename(output_filename)}"
+    
+    try:
+        # Create empty file if not exists to ensure tool works (if it expects existing)
+        # Actually it likely creates it.
+        
+        subprocess.check_call([
+            "custota-tool", "gen-update-info",
+            "--location", zip_url,
+            "--file", output_json_path
+        ])
+        print_status("CUSTOTA", "SUCCESS", f"JSON generated: {output_json_path}", Color.GREEN)
+    except Exception as e:
+         log_error(f"Failed to generate Custota JSON: {e}")
 
 def extract_patched_boot_images(zip_path, output_dir):
     """
