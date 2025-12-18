@@ -287,8 +287,9 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
                             const dev = devices.find(d => d.vendorId === 0x18d1);
                             if (dev) {
                                 try {
-                                    fastbootDev = new FastbootDevice(dev);
-                                    await fastbootDev.connect();
+                                    fastbootDev = new FastbootDevice();
+                                    // @ts-ignore
+                                    await fastbootDev.connect(dev);
                                     // @ts-ignore
                                     await fastbootDev.getVariable("product");
                                     break;
