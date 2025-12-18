@@ -1,237 +1,48 @@
 import * as Fastboot from 'android-fastboot';
+import { FastbootDevice } from 'android-fastboot';
+import { performUnlock, flashCustomKey, performLock } from './flash-actions';
+import { log } from './ui-utils';
+import { AdbService } from './adb-service';
+import { SideloadService } from './sideload-service';
 
-/**
- * Configuration interface for the flasher.
- */
+export interface ValidatedFiles {
+    zipUrl: string | null;
+    key: Blob | null;
+}
+
 export interface FlasherConfig {
     unlock: boolean;
     flashKey: boolean;
     flashZip: boolean;
     lock: boolean;
     wipeData: boolean;
-}
-
-/**
- * File inputs for the flasher.
- */
-export interface ValidatedFiles {
-    key: Blob | null;
-    zipUrl: string | null;
-}
-
-/**
- * Internal interface for the Fastboot Device provided by the library.
- * Minimally typed based on usage.
- */
-interface FastbootDevice {
-    connect(): Promise<void>;
-    getVariable(name: string): Promise<string>;
-    runCommand(cmd: string): Promise<void>;
-    waitForConnect(): Promise<void>;
-    upload(partition: string, buffer: ArrayBuffer): Promise<void>;
-    flashFactoryZip(blob: Blob | File, wipe: boolean, onReconnect: () => Promise<void>, onProgress: (action: string, item: string, progress: number) => void): Promise<void>;
-}
-
-/**
- * Shows a blocking modal (The Gatekeeper) with a 60s timer.
- * @param message - Warning message.
- * @returns Promise<boolean> true if confirmed, false if timeout/cancelled.
- */
-export async function showBlockingWarning(message: string): Promise<boolean> {
-    const modal = document.getElementById('warning-modal') as HTMLElement | null;
-    const timerDisplay = document.getElementById('modal-timer');
-    const confirmBtn = document.getElementById('btn-confirm');
-    const cancelBtn = document.getElementById('btn-cancel');
-    const msgBody = document.getElementById('modal-message');
-
-    if (!modal || !timerDisplay || !confirmBtn || !cancelBtn || !msgBody) return false;
-
-    msgBody.textContent = message;
-
-    // Native Dialog API
-    if (typeof (modal as any).showModal === 'function') {
-        (modal as any).showModal();
-    } else {
-        modal.style.display = 'block'; // Fallback
-    }
-
-    let timeLeft = 60;
-    timerDisplay.textContent = `${timeLeft}`;
-
-    return new Promise((resolve) => {
-        let timerInterval: any;
-
-        const cleanup = () => {
-            clearInterval(timerInterval);
-            if (typeof (modal as any).close === 'function') {
-                (modal as any).close();
-            } else {
-                modal.style.display = 'none';
-            }
-            confirmBtn.onclick = null;
-            cancelBtn.onclick = null;
-        };
-
-        // 1. Timer Logic
-        timerInterval = setInterval(() => {
-            timeLeft--;
-            timerDisplay.textContent = `${timeLeft}`;
-            if (timeLeft <= 0) {
-                cleanup();
-                console.warn("Gatekeeper: Timeout reached.");
-                resolve(false); // AUTO-CLOSE: Fail safe
-            }
-        }, 1000);
-
-        // 2. Confirm
-        confirmBtn.onclick = () => {
-            cleanup();
-            resolve(true); // Proceed
-        };
-
-        // 3. Cancel
-        cancelBtn.onclick = () => {
-            cleanup();
-            resolve(false); // Abort
-        };
-    });
-}
-
-/**
- * Log wrapper to update UI console.
- */
-function log(msg: string, type: 'info' | 'error' | 'success' = 'info') {
-    const container = document.getElementById('log-container');
-    if (!container) return;
-
-    if (type === 'error') console.error(msg);
-    else console.log(msg);
-
-    const el = document.createElement('div');
-    el.className = 'log-entry';
-    if (type === 'error') el.classList.add('log-err');
-    else if (type === 'success') el.classList.add('log-success');
-
-    const timestamp = new Date().toLocaleTimeString();
-    el.textContent = `[${timestamp}] ${msg}`;
-    container.appendChild(el);
-    container.scrollTop = container.scrollHeight;
-}
-
-/**
- * 1. UNLOCK FLOW
- */
-async function performUnlock(device: FastbootDevice) {
-    log("Checking bootloader state...");
-    let isUnlocked = 'no';
-    try {
-        isUnlocked = await device.getVariable('unlocked');
-    } catch (e) {
-        log("Could not check unlock state (older device?), assuming locked.", "error");
-    }
-
-    if (isUnlocked === 'yes') {
-        log("Device is already unlocked. Skipping unlock step.", "success");
-        return;
-    }
-
-    const userConsent = await showBlockingWarning(
-        "WARNING: You are about to UNLOCK the bootloader. This will WIPE ALL DATA on the device. You have 60 seconds to confirm."
-    );
-
-    if (!userConsent) {
-        throw new Error("Unlock operation cancelled by user or timeout.");
-    }
-
-    log("Sending unlock command...");
-    try {
-        await device.runCommand('flashing unlock');
-    } catch (e: any) {
-        try {
-            await device.runCommand('oem unlock');
-        } catch (innerE) {
-            throw new Error("Failed to send unlock command: " + e.message);
-        }
-    }
-
-    alert("ACTION REQUIRED: Check your phone! Use Volume keys to select 'UNLOCK' and Power to confirm.");
-    log("Waiting for device to reconnect after unlock/wipe...", "info");
-    await device.waitForConnect();
-}
-
-/**
- * 2. FLASH KEY FLOW
- */
-async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
-    if (!keyBlob) throw new Error("No AVB key provided!");
-
-    const isUserspace = await device.getVariable('is-userspace');
-    if (isUserspace === 'yes') {
-        log("Switching to Bootloader Interface for key flashing...");
-        await device.runCommand('reboot-bootloader');
-        await device.waitForConnect();
-    }
-
-    log("Erasing old AVB key...");
-    await device.runCommand('erase:avb_custom_key');
-
-    log("Flashing new AVB Custom Key...");
-    // FIX: buffer conversion and explicit partition naming
-    const buffer = await keyBlob.arrayBuffer();
-    await device.upload('avb_custom_key', buffer);
-
-    await device.runCommand('flash:avb_custom_key');
-
-    log("AVB Key flashed successfully.", "success");
-}
-
-
-
-/**
- * 4. LOCK FLOW
- */
-async function performLock(device: FastbootDevice) {
-    const isUserspace = await device.getVariable('is-userspace');
-    if (isUserspace === 'yes') {
-        log("Switching to Bootloader Interface for locking...");
-        await device.runCommand('reboot-bootloader');
-        await device.waitForConnect();
-    }
-
-    const userConsent = await showBlockingWarning(
-        "CRITICAL WARNING: You are about to LOCK the bootloader. Ensure you have flashed the correct AVB Custom Key matching your installed system. If keys mismatch, your device will BRICK. Proceed?"
-    );
-
-    if (!userConsent) {
-        log("Locking skipped by user/timeout. Device remains unlocked.", "info");
-        return;
-    }
-
-    log("Sending lock command...");
-    await device.runCommand('flashing lock');
-    alert("ACTION REQUIRED: Confirm LOCK on device screen!");
+    autoReboot: boolean;
 }
 
 /**
  * === MAIN ORCHESTRATOR ===
  */
-export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles) {
-    // Instantiate via imported library
-    const device = new Fastboot.FastbootDevice();
+export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles, existingDevice?: FastbootDevice) {
+    // Instantiate via imported library OR use existing
+    const device = existingDevice || new Fastboot.FastbootDevice();
 
     try {
-        log("Connecting to USB device...");
-        await device.connect();
+        if (!existingDevice) {
+            log("Connecting to USB device...");
+            await device.connect();
+        } else {
+            log("Using existing connection...", "info");
+        }
 
         const product = await device.getVariable('product');
         log(`Connected: ${product}`, "success");
 
         if (config.unlock) {
-            await performUnlock(device as any);
+            await performUnlock(device);
         }
 
         if (config.flashKey && files.key) {
-            await flashCustomKey(device as any, files.key);
+            await flashCustomKey(device, files.key);
         }
 
         if (config.flashZip && files.zipUrl) {
@@ -327,33 +138,291 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
 
                 log(`Starting Firmware Flash (Wipe: ${config.wipeData})...`, "info");
 
-                // Use slice to ensure clean Blob state
-                const cleanBlob = file.slice(0, file.size);
+                // --- ZIP HEADER CHECK ---
+                // Validate it's actually a ZIP (PK..) before passing to library
+                const headerSlice = file.slice(0, 4);
+                const headerArr = new Uint8Array(await headerSlice.arrayBuffer());
+                const headerHex = Array.from(headerArr).map(b => b.toString(16).padStart(2, '0')).join('');
+                log(`ZIP Header Check: ${headerHex} (Expected: 504b0304 or similar)`);
 
-                // Use the real flashFactoryZip method from the device instance
-                await (device as unknown as FastbootDevice).flashFactoryZip(cleanBlob, config.wipeData, async () => {
-                    log("Device reboot detected. Reconnecting...");
-                    await device.waitForConnect();
-                }, (action: string, item: string, progress: number) => {
-                    const percent = (progress * 100).toFixed(1);
-                    if (action !== 'reboot') {
-                        log(`[${action}] ${item}: ${percent}%`);
+                if (headerArr[0] !== 0x50 || headerArr[1] !== 0x4B) {
+                    throw new Error(`Invalid ZIP Header (${headerHex}). Download might be corrupt or 404/500 text.`);
+                }
+
+                // --- MANUAL FLASHING SEQUENCE (zip.js) ---
+                log("Unzipping Factory Image (Streamed)...", "info");
+                const zip = await import('@zip.js/zip.js');
+
+                // Use BlobReader for efficient random access without OOM
+                const reader = new zip.ZipReader(new zip.BlobReader(file));
+                const entries = await reader.getEntries();
+
+                // DEBUG: Log all filenames to see structure
+                log(`Zip Entries Found (${entries.length}):`);
+                entries.slice(0, 10).forEach(e => log(` - ${e.filename}`));
+                if (entries.length > 10) log(` - ... and ${entries.length - 10} more`);
+
+                // 0. OTA GUARD
+                if (entries.some(e => e.filename === 'payload.bin' || e.filename.endsWith('/payload.bin'))) {
+                    log("OTA Image Detected (payload.bin). Switching to Sideload Mode...", "info");
+
+                    // 1. AUTO REBOOT TO RECOVERY
+                    try {
+                        log("Auto-rebooting to Recovery...", "info");
+                        await device.runCommand('reboot-recovery');
+                    } catch (e: any) {
+                        // If fails, user might be in recovery already or disconnected
+                        log(`Auto-reboot hint: ${e.message}`, "info");
                     }
-                    const bar = document.getElementById('progress-bar') as HTMLProgressElement;
-                    if (bar) bar.value = progress * 100;
-                });
 
-                log("Flash Complete.", "success");
+                    const adbService = new AdbService();
+
+                    try {
+                        log("Waiting for device/ADB...", "info");
+                        log("NOTE: 'No Command' screen? -> Hold Power + Tap Vol Up.", "error");
+
+                        // SHOW MANUAL CONTROLS
+                        const controls = document.getElementById('sideload-controls');
+                        const btnManual = document.getElementById('btn-sideload-manual');
+                        if (controls) controls.style.display = 'block';
+
+                        let connected = false;
+
+                        const tryConnect = async (device: USBDevice) => {
+                            try {
+                                log("Connecting to ADB interface...", "info");
+                                await adbService.connect(device);
+                                connected = true;
+                                if (controls) controls.style.display = 'none';
+                            } catch (e: any) {
+                                log(`Connect failed: ${e.message}`, "error");
+                            }
+                        };
+
+                        if (btnManual) {
+                            btnManual.onclick = async () => {
+                                try {
+                                    const usbDevice = await navigator.usb.requestDevice({
+                                        filters: [{ classCode: 255, subclassCode: 66, protocolCode: 1 }]
+                                    });
+                                    await tryConnect(usbDevice);
+                                } catch (e) { }
+                            };
+                        }
+
+                        // POLL Loop (180s)
+                        for (let i = 0; i < 180; i++) {
+                            if (connected) break;
+                            const devices = await navigator.usb.getDevices();
+                            const candidate = devices.find(d =>
+                                d.vendorId === 0x18d1 &&
+                                (d.productId === 0x4ee7 || d.configuration?.interfaces.some(iface =>
+                                    iface.alternates[0].interfaceClass === 255 &&
+                                    iface.alternates[0].interfaceSubclass === 66 &&
+                                    iface.alternates[0].interfaceProtocol === 1
+                                ))
+                            );
+                            if (candidate) await tryConnect(candidate);
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
+
+                        if (btnManual) btnManual.onclick = null;
+                        if (controls) controls.style.display = 'none';
+
+                        if (!connected) throw new Error("ADB Device not found. Use 'Connect Manually'.");
+
+                        // AUTO-REBOOT Check (if accidentally in normal ADB)
+                        // ADB Sideload usually doesn't allow shell commands, but "recovery" does?
+                        // If we are in "sideload", shell fails. 
+                        // If we are in "device", we can reboot.
+                        try {
+                            // Try a harmless command to see if we have shell access
+                            // If we are in 'sideload' mode, this throws "closed" or similar?
+                            // Actually, sideloadService opens a specific socket.
+                            // Let's just proceed to Sideload. If it fails, user handles it.
+                        } catch (e) { }
+
+                        // Sideload
+                        const sideloadService = new SideloadService(adbService.adb!);
+                        await sideloadService.sideload(file);
+
+                        log("✅ Sideload Complete!", "success");
+
+                        // -------------------------------------------------
+                        // POST-FLASH VALIDATION FLOW
+                        // -------------------------------------------------
+
+                        // 1. Reboot to System
+                        // 1. Reboot to System
+                        try {
+                            log("Rebooting to System for Verification...", "info");
+                            await adbService.rebootSystem();
+                        } catch (e) {
+                            log("Reboot command sent.", "info");
+                        }
+
+                        // Disconnect ADB
+                        try { await adbService.dispose(); } catch (e) { }
+
+                        // 2. Verified Modal
+                        log("Waiting for User Verification...", "info");
+                        const verifyModal = document.getElementById('verify-boot-modal');
+                        const verifyBtn = document.getElementById('btn-verify-done');
+                        if (verifyModal) verifyModal.classList.add('is-active');
+
+                        await new Promise<void>(resolve => {
+                            if (verifyBtn) verifyBtn.onclick = () => {
+                                if (verifyModal) verifyModal.classList.remove('is-active');
+                                resolve();
+                            };
+                        });
+
+                        // 3. Re-Connect Fastboot
+                        log("Waiting for Bootloader connection...", "info");
+                        let fastbootDev: FastbootDevice | null = null;
+
+                        // Poll 120s
+                        for (let i = 0; i < 120; i++) {
+                            const devices = await navigator.usb.getDevices();
+                            const dev = devices.find(d => d.vendorId === 0x18d1);
+                            if (dev) {
+                                try {
+                                    fastbootDev = new FastbootDevice(dev);
+                                    await fastbootDev.connect();
+                                    // @ts-ignore
+                                    await fastbootDev.getVariable("product");
+                                    break;
+                                } catch (e) {
+                                    fastbootDev = null;
+                                }
+                            }
+                            await new Promise(r => setTimeout(r, 1000));
+                        }
+
+                        if (!fastbootDev) {
+                            throw new Error("Device not found in Bootloader mode. Validation aborted.");
+                        }
+
+                        log("Device connected in Bootloader.", "success");
+
+                        // 4. Lock Modal
+                        const lockModal = document.getElementById('lock-confirmation-modal');
+                        const lockBtn = document.getElementById('btn-lock-confirm');
+                        const skipBtn = document.getElementById('btn-lock-skip');
+                        if (lockModal) lockModal.classList.add('is-active');
+
+                        await new Promise<void>((resolve) => {
+                            if (lockBtn) lockBtn.onclick = async () => {
+                                if (lockModal) lockModal.classList.remove('is-active');
+                                log("Locking Bootloader...", "info");
+                                try {
+                                    // @ts-ignore
+                                    await fastbootDev!.runCommand("flashing lock");
+                                    log("WARNING: Please CONFIRM on device screen!", "info");
+                                    log("Waiting for reboot...", "info");
+                                    await new Promise(r => setTimeout(r, 5000));
+                                    // @ts-ignore
+                                    try { await fastbootDev!.runCommand("reboot"); } catch (e) { }
+                                    resolve();
+                                } catch (e: any) {
+                                    log(`Lock Command Failed: ${e.message}`, "error");
+                                    log("Cause: 'invalid images' (Boot not verified)?", "info");
+                                    resolve();
+                                }
+                            };
+                            if (skipBtn) skipBtn.onclick = () => {
+                                if (lockModal) lockModal.classList.remove('is-active');
+                                log("Skipping Lock. Rebooting...", "info");
+                                // @ts-ignore
+                                fastbootDev!.runCommand("reboot").catch(() => { });
+                                resolve();
+                            }
+                        });
+
+
+                        return; // Exit Sideload Flow
+
+                    } catch (adbErr: any) {
+                        throw new Error("ADB Sideload Failed: " + adbErr.message);
+                    } finally {
+                        // adbService disposed manually above
+                    }
+                }
+
+                // Helper to get Blob from an Entry
+                const getEntryBlob = async (entry: any): Promise<Blob> => {
+                    const writer = new zip.BlobWriter();
+                    return await entry.getData(writer);
+                };
+
+                // 1. Bootloader & Radio - SKIPPED FOR SAFETY
+                log("SAFETY: Skipping Bootloader and Radio flashing to prevent bricking.", "info");
+
+                // 3. Nested Images
+                const imageZipEntry = entries.find(e => e.filename.match(/image-.+\.zip$/));
+                if (imageZipEntry) {
+                    log(`Unpacking nested images (${imageZipEntry.filename})...`);
+                    const imageZipBlob = await getEntryBlob(imageZipEntry);
+
+                    // Nested Reader
+                    const nestedReader = new zip.ZipReader(new zip.BlobReader(imageZipBlob));
+                    const nestedEntries = await nestedReader.getEntries();
+
+                    // Reboot to FastbootD
+                    const isUserspace = await device.getVariable('is-userspace');
+                    if (isUserspace !== 'yes') {
+                        log("Rebooting to FastbootD (Userspace) for system flashing...");
+                        await device.runCommand('reboot-fastboot');
+                        await device.waitForConnect();
+                    }
+
+                    const imgEntries = nestedEntries.filter(e => e.filename.endsWith('.img'));
+                    log(`Found ${imgEntries.length} partition images to flash.`);
+
+                    for (const entry of imgEntries) {
+                        const partName = entry.filename.replace('.img', '');
+                        // Filter out non-partitions if necessary (e.g. android-info.txt is already filtered by .img)
+
+                        log(`Flashing ${partName}...`);
+                        const content = await getEntryBlob(entry);
+
+                        try {
+                            await (device as any).flashBlob(partName, content);
+                            const progressBar = document.getElementById('progress-bar') as HTMLProgressElement;
+                            if (progressBar) progressBar.innerText = `Flashed ${partName}`;
+                        } catch (e: any) {
+                            log(`Failed to flash ${partName}: ${e.message}`, "error");
+                            // Critical failure? Usually yes.
+                            throw e;
+                        }
+                    }
+                    await nestedReader.close();
+                }
+
+                await reader.close();
+
+                // Reboot to System
+                if (config.autoReboot) {
+                    log("Flashing Complete. Rebooting to System...", "success");
+                    await device.runCommand('reboot');
+                } else {
+                    log("Flashing Complete. Reboot skipped (checkbox unchecked).", "success");
+                }
             } catch (err: any) {
                 // CACHE INVALIDATION ON ERROR
-                try {
-                    // Re-derive filename to ensure we delete the correct one
-                    const zipFilename = files.zipUrl.split('/').pop() || 'firmware.zip';
-                    const root = await navigator.storage.getDirectory();
-                    await root.removeEntry(zipFilename);
-                    log(`Invalidated corrupt/partial cache (${zipFilename} removed).`, "info");
-                } catch (cleanupErr) {
-                    console.error("Failed to cleanup cache:", cleanupErr);
+                // Don't delete cache if it was just a user abort (retained for retry)
+                if (!err.message.includes("Aborted by user") && !err.message.includes("Sideload cancelled")) {
+                    try {
+                        // Re-derive filename to ensure we delete the correct one
+                        const zipFilename = files.zipUrl.split('/').pop() || 'firmware.zip';
+                        const root = await navigator.storage.getDirectory();
+                        await root.removeEntry(zipFilename);
+                        log(`Invalidated corrupt/partial cache (${zipFilename} removed).`, "info");
+                    } catch (cleanupErr) {
+                        console.error("Failed to cleanup cache:", cleanupErr);
+                    }
+                } else {
+                    log("Cache retained (User Abort).", "info");
                 }
 
                 throw new Error(`Cloud Download/Flash Error: ${err.message}`);
@@ -361,10 +430,11 @@ export async function runWebFlasher(config: FlasherConfig, files: ValidatedFiles
         }
 
         if (config.lock) {
-            await performLock(device as any);
+            await performLock(device);
         } else {
             log("Locking skipped (not selected).");
         }
+
 
         log("Looking good! Process finished.", "success");
 
