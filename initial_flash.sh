@@ -1,308 +1,236 @@
 #!/bin/bash
-
-# Configuration
-OUTPUT_DIR="output"
-TIMEOUT_SEC=30
-SLEEP_TIME=10
+# initial_flash.sh - SAFE Universal Flasher for Pixel Devices
+# Supports both Factory Images (Fastboot) and OTA Images (Recovery/Sideload).
+# Enforces strict safety checks.
+# V5.0 - Universal Safety Edition
 
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-echo -e "${CYAN}=== Pixel Initial Flash Helper ===${NC}"
+echo -e "${CYAN}=== PIXEL UNIVERSAL SAFETY FLASHER v5.0 ===${NC}"
+echo -e "${YELLOW}Operating in PARANOID SAFETY MODE.${NC}"
 
-# 1. Find the# 3. Detect Firmware
-ZIP_FILE=$(find "$OUTPUT_DIR" -maxdepth 1 -name "ksu_patched_*.zip" | head -n 1)
+# Configuration
+OUTPUT_DIR="output"
+
+# 1. Find the Image (ZIP)
+# Priority: Patched OTA -> Factory Image -> Stock OTA
+ZIP_FILE=$(find "$OUTPUT_DIR" -name "ksu_patched_*.zip" | head -n 1)
 
 if [ -z "$ZIP_FILE" ]; then
-    echo "No patched firmware found in $OUTPUT_DIR!"
-    echo "Please run the builder first."
-    exit 1
+     ZIP_FILE=$(find "$OUTPUT_DIR" -name "image-*.zip" | head -n 1)
+fi
+if [ -z "$ZIP_FILE" ]; then
+     ZIP_FILE=$(find "$OUTPUT_DIR" -name "frankel-ota-*.zip" | head -n 1)
 fi
 
-FILENAME=$(basename "$ZIP_FILE")
-BASENAME="${FILENAME%.*}"
-EXTRACTED_DIR="$OUTPUT_DIR/$BASENAME"
+if [ -z "$ZIP_FILE" ]; then
+    echo -e "${RED}❌ FATAL: No Image found in $OUTPUT_DIR!${NC}"
+    exit 1
+fi
+echo -e "Target Image: ${CYAN}$ZIP_FILE${NC}"
 
-echo "📁 Found Firmware: $ZIP_FILE"
-if [ -d "$EXTRACTED_DIR" ]; then
-    echo "📂 Found Extracted Images: $EXTRACTED_DIR"
+# 2. Identify Image Type
+if unzip -l "$ZIP_FILE" | grep -q "payload.bin"; then
+    MODE="OTA"
+    echo -e "Detected Type: ${GREEN}OTA IMAGE (Recovery Sideload)${NC}"
+elif unzip -l "$ZIP_FILE" | grep -q "android-info.txt"; then
+    MODE="FACTORY"
+    echo -e "Detected Type: ${GREEN}FACTORY IMAGE (Fastboot Update)${NC}"
 else
-    echo "⚠️  Extracted images directory not found: $EXTRACTED_DIR"
-    # Fallback to output root just in case old build
-    EXTRACTED_DIR="$OUTPUT_DIR"
-fi
-
-echo -e "${GREEN}📁 Found Firmware: $ZIP_FILE${NC}"
-
-# Check for ADB/Fastboot
-if ! command -v fastboot &> /dev/null; then
-    echo -e "${RED}❌ Error: fastboot tool not found!${NC}"
+    echo -e "${RED}❌ FATAL: Unknown ZIP format. Cannot flash safely.${NC}"
     exit 1
 fi
 
-# Function for Timed Confirmation
-confirm_action() {
-    local prompt="$1"
-    local default_action="${2:-N}" # Default is No
-    local timeout="$TIMEOUT_SEC"
+# ---------------------------------------------------------
+# PHASE 1: PRE-CONFIRMATION
+# ---------------------------------------------------------
+echo -e "\n${CYAN}--- PHASE 1: CONFIRMATION ---${NC}"
+echo -e "You are about to flash: $ZIP_FILE"
+echo -e "Mode: $MODE"
+if [ "$MODE" == "FACTORY" ]; then
+    echo -e "${RED}WARNING: This mode (Factory) will WIPE DATA (-w).${NC}"
+else
+    echo -e "${GREEN}Info: OTA Sideload preserves data (usually).${NC}"
+fi
+
+echo -e "\nType ${GREEN}YES${NC} (all caps) to continue:"
+read -r CONFIRM
+if [ "$CONFIRM" != "YES" ]; then
+    echo "Aborting."
+    exit 1
+fi
+
+# ---------------------------------------------------------
+# PHASE 2: DEVICE PREPARATION & FLASH
+# ---------------------------------------------------------
+echo -e "\n${CYAN}--- PHASE 2: PREPARATION & FLASH ---${NC}"
+
+if [ "$MODE" == "OTA" ]; then
+    # OTA FLOW (ADB SIDELOAD)
+    echo -e "${YELLOW}INSTRUCTIONS FOR OTA SIDELOAD:${NC}"
+    echo "1. Ensure device is in 'Recovery Mode'."
+    echo "   (From Fastboot: Select Recovery Mode -> Power+VolUp to see menu -> 'Apply update from ADB')"
+    echo "2. If you are in Fastboot, enter Recovery NOW."
     
-    echo -e "${YELLOW}$prompt${NC}"
-    echo -n "Type Y/N (Default: $default_action, Timeout: ${timeout}s): "
+    echo -ne "\nPress ENTER when device is in 'Apply update from ADB' mode..."
+    read
     
-    read -t "$timeout" -r response
-    
-    # If timed out
-    if [ $? -gt 128 ]; then
-        echo ""
-        echo -e "${RED}⏰ Timeout reached. Defaulting to $default_action.${NC}"
-        response="$default_action"
-    fi
-    
-    # If empty (user just pressed enter)
-    if [ -z "$response" ]; then
-        response="$default_action"
-    fi
-    
-    echo ""
-    
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        return 0 # True (Yes)
+    echo "Checking ADB connection..."
+    # Warning: Sideload devices sometimes show up as 'sideload' or 'device'
+    ADB_STATUS=$(adb devices | grep -v "List" | grep -v "^$" | awk '{print $2}')
+    if [[ "$ADB_STATUS" == "sideload" ]] || [[ "$ADB_STATUS" == "device" ]]; then
+        echo -e "${GREEN}Device Connected via ADB ($ADB_STATUS).${NC}"
+        echo "Starting Sideload..."
+        adb sideload "$ZIP_FILE"
     else
-        return 1 # False (No)
+        echo -e "${RED}❌ Device not found in ADB Sideload mode!${NC}"
+        echo "Please check connection and select 'Apply update from ADB' on phone."
+        exit 1
     fi
-}
 
-# 2. Check Device Connection (ADB)
-echo "Checking ADB devices..."
-ADB_STATUS=$(adb get-state 2>/dev/null)
+elif [ "$MODE" == "FACTORY" ]; then
+    # FACTORY FLOW (FASTBOOT)
+    echo -e "${YELLOW}INSTRUCTIONS FOR FACTORY FLASH (SAFE MODE):${NC}"
+    echo "1. Ensure device is in 'Fastboot Mode' (Bootloader)."
+    
+    echo "Waiting for Fastboot device..."
+    while ! fastboot devices | grep -iq "fastboot"; do sleep 1; done
+    echo -e "${GREEN}Device Connected.${NC}"
 
-if [ "$ADB_STATUS" == "device" ]; then
-    echo -e "${GREEN}✅ Device connected via ADB.${NC}"
+    # Strict Safety Check
+    PRODUCT=$(fastboot getvar product 2>&1 | grep "product" | awk '{print $2}')
+    if [ "$PRODUCT" != "frankel" ]; then
+        echo -e "${RED}⛔ STOP: Wrong device or Crash Mode ($PRODUCT). Expected 'frankel'.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}Identity Verified: $PRODUCT${NC}"
+
+    echo -e "${YELLOW}Unpacking Firmware...${NC}"
+    WORK_DIR="tmp_flash_extract"
+    rm -rf "$WORK_DIR"
+    mkdir -p "$WORK_DIR"
+    
+    unzip -o "$ZIP_FILE" -d "$WORK_DIR" > /dev/null
+    
+    # Handle nested image-*.zip
+    NESTED_ZIP=$(find "$WORK_DIR" -name "image-*.zip" | head -n 1)
+    if [ -n "$NESTED_ZIP" ]; then
+        echo "Unpacking nested images..."
+        unzip -o "$NESTED_ZIP" -d "$WORK_DIR" > /dev/null
+    fi
+    
+    cd "$WORK_DIR" || exit 1
+    
+    echo -e "${CYAN}Starting Safe Flash Sequence...${NC}"
+    echo -e "${RED}SKIPPING BOOTLOADER AND RADIO FLASH FOR SAFETY.${NC}"
+
+    # 1. Flash Boot/Static Partitions (Bootloader Mode)
+    echo "Flashing static partitions..."
+    for IMG in boot.img dtbo.img vbmeta.img vbmeta_system.img vbmeta_vendor.img vendor_boot.img init_boot.img; do
+        if [ -f "$IMG" ]; then
+            echo " - Flashing $IMG..."
+            fastboot flash "${IMG%.*}" "$IMG"
+        fi
+    done
+    
+    # 2. Reboot to FastbootD for Dynamic Partitions
+    echo -e "${YELLOW}Rebooting to FastbootD (Userspace) for generic partitions...${NC}"
+    fastboot reboot fastboot
+    
+    echo "Waiting for FastbootD..."
+    sleep 5
+    while ! fastboot devices | grep -iq "fastboot"; do sleep 1; done
+    
+    # 3. Flash Dynamic Partitions
+    echo "Flashing dynamic partitions..."
+    # Note: We use 'flash' not 'update' to avoid full wipe unless requested, but here we just flash partitions.
+    # Safe list of dynamic partitions
+    for IMG in system.img system_ext.img product.img vendor.img vendor_dlkm.img system_dlkm.img; do
+         if [ -f "$IMG" ]; then
+            echo " - Flashing $IMG..."
+            fastboot flash "${IMG%.*}" "$IMG"
+        fi
+    done
+
+    # 4. Wipe Data (Optional but recommended for factory flash usually, but let's ASK or just SKIP for safety?)
+    # Original script had -w. We will Prompt.
+    echo -e "\n${YELLOW}Do you want to WIPE USER DATA? (Recommended for clean flash)${NC}"
+    echo "Type YES to wipe, any other key to keep data:"
+    read -r DO_WIPE
+    if [ "$DO_WIPE" == "YES" ]; then
+        echo "Wiping User Data..."
+        fastboot erase userdata
+        fastboot erase metadata
+    else
+        echo "Skipping Data Wipe."
+    fi
+
     echo "Rebooting to Bootloader..."
-    adb reboot bootloader
-    echo "Waiting ${SLEEP_TIME}s..."
-    sleep $SLEEP_TIME
-else
-    echo -e "${YELLOW}⚠️  Device not detected in ADB. Assuming it might be in Fastboot mode...${NC}"
-fi
-
-# 3. Check Fastboot Connection
-FASTBOOT_DEVICE=$(fastboot devices | head -n 1 | awk '{print $1}')
-if [ -z "$FASTBOOT_DEVICE" ]; then
-    echo -e "${RED}❌ Error: No device detected in Fastboot mode.${NC}"
-    echo "Please connect your device and boot into Bootloader (Power + Volume Down)."
-    exit 1
-fi
-echo -e "${GREEN}✅ Device detected in Fastboot: $FASTBOOT_DEVICE${NC}"
-
-# 4. Verify Model
-echo "Verifying Device Model..."
-PRODUCT=$(fastboot getvar product 2>&1 | grep "product:" | awk '{print $2}')
-
-# Extract codename from filename (e.g., frankel inside ksu_patched_frankel...)
-FILENAME_CODENAME=$(basename "$ZIP_FILE" | grep -oP "(?<=ksu_patched_)[a-z]+")
-
-if [[ "$ZIP_FILE" == *"$PRODUCT"* ]]; then
-    echo -e "${GREEN}✅ Model Match: Device ($PRODUCT) matches File ($FILENAME_CODENAME)${NC}"
-else
-    echo -e "${RED}❌ Mismatch Warning!${NC}"
-    echo -e "Device reports: ${YELLOW}$PRODUCT${NC}"
-    echo -e "File appears to be for: ${YELLOW}$FILENAME_CODENAME${NC}"
+    fastboot reboot bootloader
     
-    if ! confirm_action "⚠️  RISK OF BRICK. Models do not match. Continue anyway?" "N"; then
-        echo "Aborting."
-        exit 1
-    fi
-fi
+    cd ..
+    rm -rf "$WORK_DIR"
 
-# 5. Check Bootloader Status
-UNLOCKED=$(fastboot getvar unlocked 2>&1 | grep "unlocked:" | awk '{print $2}')
-echo "Bootloader Status: $UNLOCKED"
-
-if [ "$UNLOCKED" == "no" ]; then
-    echo -e "${RED}🔒 Bootloader is LOCKED.${NC}"
-    echo -e "${YELLOW}WARNING: Unlocking the bootloader WIPES ALL DATA.${NC}"
-    
-    if confirm_action "Do you want to UNLOCK the bootloader now?" "N"; then
-        echo "Running: fastboot flashing unlock"
-        fastboot flashing unlock
-        echo -e "${CYAN}Please confirm on the device screen!${NC}"
-        read -p "Press Enter after unlocking is done on device..."
-        
-        # Verify again
-        sleep 5
-        UNLOCKED_CHECK=$(fastboot getvar unlocked 2>&1 | grep "unlocked:" | awk '{print $2}')
-        if [ "$UNLOCKED_CHECK" == "no" ]; then
-             echo -e "${RED}❌ Unlock failed or cancelled.${NC}"
-             exit 1
-        fi
-    else
-        echo -e "${RED}Cannot proceed with locked bootloader. Aborting.${NC}"
-        exit 1
-    fi
-fi
-
-# 6. Flash Selection & Execution
-echo -e "${CYAN}--- READY TO FLASH ---${NC}"
-echo "Target: $PRODUCT"
-
-# Search for extracted images
-INIT_BOOT_IMG=$(ls "$OUTPUT_DIR"/init_boot.img 2>/dev/null)
-BOOT_IMG=$(ls "$OUTPUT_DIR"/boot.img 2>/dev/null)
-AVB_KEY_BIN=$(ls "$OUTPUT_DIR"/avb_pkmd.bin 2>/dev/null)
-
-# 6. Flash Strategy: Flash All Available Images
-echo -e "\n${CYAN}--- FLASHING PROCESS ---${NC}"
-
-# Helper function to flash if file exists
-flash_if_exists() {
-    local part=$1
-    local file="$EXTRACTED_DIR/$1.img"
-    if [ -f "$file" ]; then
-        echo -e "Flashing ${GREEN}$part${NC}..."
-        fastboot flash "$part" "$file"
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}❌ Failed to flash $part${NC}"
-            read -t 60 -p "Continue anyway? (y/N) " CONFIRM
-            if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then exit 1; fi
-        fi
-    fi
-}
-
-# 6a. Flash Static Partitions (Bootloader Mode)
-echo -e "${YELLOW}Phase 1: Static Partitions (Bootloader)${NC}"
-
-# Priority: init_boot & boot (Rooted)
-INIT_BOOT_IMG="$EXTRACTED_DIR/init_boot.img"
-BOOT_IMG="$EXTRACTED_DIR/boot.img"
-AVB_KEY_BIN="$EXTRACTED_DIR/avb_pkmd.bin"
-
-# 6a. Flash AVB Key (Critical for Locking)
-if [ -f "$AVB_KEY_BIN" ]; then
-    echo -e "Found Custom AVB Key: ${YELLOW}$AVB_KEY_BIN${NC}"
-    echo "This key is REQUIRED if you plan to LOCK the bootloader."
-    
-    if confirm_action "Flash Custom AVB Key (avb_custom_key)?" "N"; then
-        echo -e "${GREEN}🚀 Flashing avb_custom_key...${NC}"
-        
-        # Erasing first improves reliability on some Pixels
-        echo "Erasing old key..."
-        fastboot erase avb_custom_key
-        
-        fastboot flash avb_custom_key "$AVB_KEY_BIN"
-        
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}❌ Key Flash Failed!${NC}"
-            # Don't exit, might still want to flash images for unlocked use
-        else
-            echo "Key flashed successfully."
-        fi
-    fi
-    echo ""
-fi
-
-if [ -f "$INIT_BOOT_IMG" ]; then
-    echo -e "Found patched: ${GREEN}init_boot.img${NC} (Root)"
-    flash_if_exists "init_boot"
-fi
-
-# Flash other static images found in extraction
-# Order matters less here, but usually:
-flash_if_exists "boot"
-flash_if_exists "vendor_boot"
-flash_if_exists "dtbo"
-flash_if_exists "pvmfw"
-flash_if_exists "vbmeta"
-flash_if_exists "vbmeta_system"
-flash_if_exists "vbmeta_vendor"
-
-# 6b. Flash Dynamic Partitions (FastbootD Mode)
-# Check if dynamic partitions exist
-SYSTEM_IMG="$EXTRACTED_DIR/system.img"
-VENDOR_IMG="$EXTRACTED_DIR/vendor.img"
-
-if [ -f "$SYSTEM_IMG" ] || [ -f "$VENDOR_IMG" ]; then
-    echo -e "\n${YELLOW}Phase 2: Dynamic Partitions (System, Vendor, Product...)${NC}"
-    echo "These partitions require Userspace Fastboot (FastbootD)."
-    
-    if confirm_action "Flash Dynamic Partitions? (Full OS Update)" "N"; then
-        echo "Rebooting to FastbootD..."
-        fastboot reboot fastboot
-        echo "Waiting for FastbootD..."
-        sleep 10
-        
-        # Verify we are in fastbootd?
-        # fastboot getvar is-userspace should be yes
-        
-        flash_if_exists "system"
-        flash_if_exists "system_ext"
-        flash_if_exists "product"
-        flash_if_exists "vendor"
-        flash_if_exists "vendor_dlkm"
-        flash_if_exists "system_dlkm"
-        
-        echo -e "${GREEN}Dynamic Partitions Flashed.${NC}"
-        
-        # Reboot back to bootloader for final checks or direct to system?
-        # Usually direct to system is fine, but our script logic continues.
-        # Let's stay in fastbootd or reboot?
-        # If we reboot, we exit script flow.
-        # But we haven't done "Post-Flash Action" (Locking check).
-        # Locking verification logic expects us to ideally reboot to system.
-        # So we can proceed.
-    else
-        echo "Skipping Dynamic Partitions."
-    fi
-fi
-
-if [ ! -f "$INIT_BOOT_IMG" ] && [ ! -f "$BOOT_IMG" ]; then
-    echo "No boot images found? Check output directory."
+if [ $? -ne 0 ]; then
+    echo -e "\n${RED}❌ Flash Failed!${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅ Flashing Complete!${NC}"
-echo "Waiting ${SLEEP_TIME}s..."
-sleep $SLEEP_TIME
+echo -e "\n${GREEN}✅ SUCCESS! Operation Complete.${NC}"
 
-# 8. Post-Flash Action (Test vs Lock)
-echo -e "${CYAN}--- POST-FLASH ACTION ---${NC}"
-echo -e "You have two choices:"
-echo -e "1. ${GREEN}REBOOT (Recommended)${NC} - Verify the system boots and works."
-echo -e "2. ${RED}LOCK BOOTLOADER${NC} - Only do this if you have ALREADY verified a successful boot with this key."
+# ---------------------------------------------------------
+# PHASE 4: POST-FLASH SETUP (Wireless Updater)
+# ---------------------------------------------------------
+echo -e "\n${CYAN}--- PHASE 4: POST-FLASH SETUP ---${NC}"
+echo -e "${YELLOW}Do you want to install the Wireless Updater (Custota) now?${NC}"
+echo "1. The device will reboot."
+echo "2. You must complete Android Setup (skip Wi-Fi/Account)."
+echo "3. You must keep USB Debugging enabled."
 
-echo -e "${YELLOW}Risk Warning:${NC} Locking without verifying boot can BRICK the device if the key is wrong."
-echo -e "If this is your first time flashing this key/ROM, choose REBOOT."
+echo -e "\nType ${GREEN}Y${NC} to wait for boot and install, or ENTER to skip:"
+read -r INSTALL_OTA
 
-echo -e "${CYAN}Choose Action:${NC}"
-echo "  [R] Reboot to System (Default)"
-echo "  [L] Lock Bootloader (Advanced)"
-read -t 60 -p "Enter choice [R/L]: " ACTION
-ACTION=${ACTION:-R} # Default to Reboot
-
-if [[ "$ACTION" =~ ^[Ll]$ ]]; then
-    # Locking Flow
-    echo -e "${RED}🔒 You chose to LOCK the bootloader.${NC}"
-    if confirm_action "CONFIRM: Have you already successfully booted this device with this AVB key?" "N"; then
-        echo "Running: fastboot flashing lock"
-        fastboot flashing lock
-        echo -e "${CYAN}Please confirm on the device screen!${NC}"
-        read -p "Press Enter after locking is done..."
-        # Reboot after lock
-        fastboot reboot
+if [[ "$INSTALL_OTA" == "Y" || "$INSTALL_OTA" == "y" ]]; then
+    echo -e "\n${CYAN}Waiting for device to boot into Android...${NC}"
+    echo "(This takes 1-2 minutes. Stay plugged in.)"
+    
+    # Wait loop
+    while ! adb devices | grep -w "device" > /dev/null; do
+        sleep 3
+    done
+    
+    echo -e "${GREEN}Device Detected!${NC}"
+    echo "Running Wireless Setup..."
+    
+    # Inline Wireless Setup
+    echo "Downloading Custota..."
+    CUSTOTA_APK="Custota.apk"
+    curl -L -o "$CUSTOTA_APK" https://github.com/chenxiaolong/Custota/releases/latest/download/app-release.apk
+    
+    if [ -f "$CUSTOTA_APK" ]; then
+        echo "Installing..."
+        adb install "$CUSTOTA_APK"
+        rm "$CUSTOTA_APK"
+        
+        echo "---------------------------------------------------"
+        echo "✅ Custota Installed."
+        echo ""
+        echo "CONFIGURATION STEPS:"
+        echo "1. Open Custota on phone."
+        echo "2. Grant SuperUser (Root) rights when asked."
+        echo "3. Go to Settings -> OTA URL."
+        echo "4. Enter your server URL (e.g., http://your-ip:8000/builds_index.json)"
+        echo "---------------------------------------------------"
     else
-        echo "Aborting lock for safety. Rebooting instead."
-        fastboot reboot
+        echo -e "${RED}Failed to download Custota.apk${NC}"
     fi
 else
-    # Reboot Flow (Default)
-    echo -e "Rebooting to System for verification..."
-    echo -e "NOTE: You should see a YELLOW warning screen saying 'Your device is loading a different operating system'."
-    echo -e "This is NORMAL and confirms your custom Key is working."
-    fastboot reboot
+    echo "Skipping Wireless Setup."
 fi
 
-echo -e "${GREEN}Done.${NC}"
+echo -e "${GREEN}All Done. Enjoy your Pixel 10.${NC}"
