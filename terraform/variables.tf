@@ -21,3 +21,9 @@ variable "github_repo_name" {
   type        = string
   default     = "pixel-root-ota-updater"
 }
+
+variable "alert_email_address" {
+  description = "Email address to receive Google Cloud Monitoring alerts"
+  type        = string
+  default     = "user@example.com"
+}

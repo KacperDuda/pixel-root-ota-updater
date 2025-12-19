@@ -33,3 +33,9 @@ resource "google_project_iam_member" "builder_run_admin" {
   role    = "roles/run.admin"
   member  = "serviceAccount:${google_service_account.builder_sa.email}"
 }
+
+resource "google_project_iam_member" "builder_metric_writer" {
+  project = var.gcp_project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.builder_sa.email}"
+}

@@ -5,3 +5,4 @@ packaging
 
 playwright==1.49.0
 beautifulsoup4
+google-cloud-monitoring

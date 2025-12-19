@@ -9,8 +9,10 @@ import subprocess
 
 try:
     from google.cloud import storage
+    from google.cloud import monitoring_v3
 except ImportError:
     storage = None
+    monitoring_v3 = None
 
 # Local modules
 from ui_utils import print_header, print_status, log, log_error, Color, get_visual_hash
@@ -29,6 +31,43 @@ KEY_SEARCH_PATHS = [
     DEFAULT_KEY_NAME                          # Local CWD
 ]
 OUTPUT_DIR = "/app/output"
+
+def report_failure_metric(error_reason="unknown"):
+    """
+    Reports a custom metric to Google Cloud Monitoring indicating a build failure.
+    """
+    # Only report if we are likely in a cloud environment (storage is available means we have libs)
+    if not monitoring_v3:
+        return
+
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        return
+        
+    log(f"📈 Reporting failure metric to Stackdriver (Reason: {error_reason})...")
+    try:
+        client = monitoring_v3.MetricServiceClient()
+        project_name = f"projects/{project_id}"
+        
+        series = monitoring_v3.TimeSeries()
+        series.metric.type = "custom.googleapis.com/pixel_automator/build_failures"
+        series.resource.type = "global"
+        series.metric.labels["device"] = DEVICE_CODENAME
+        series.metric.labels["reason"] = str(error_reason)[:64] # Limit length
+        
+        now = time.time()
+        seconds = int(now)
+        nanos = int((now - seconds) * 10**9)
+        interval = monitoring_v3.TimeInterval(
+            {"end_time": {"seconds": seconds, "nanos": nanos}}
+        )
+        
+        point = monitoring_v3.Point({"interval": interval, "value": {"int64_value": 1}})
+        series.points = [point]
+        
+        client.create_time_series(name=project_name, time_series=[series])
+    except Exception as e:
+        log_error(f"Failed to push metric: {e}")
 
 def debug_paths():
     log("🔍 Debugging Key Paths:")
@@ -95,6 +134,7 @@ def verify_bucket_access(bucket_name):
     except Exception as e:
         log_error(f"❌ CRITICAL failure accessing bucket '{bucket_name}': {e}")
         log_error("   Verify 'roles/storage.objectAdmin' is assigned to the Cloud Build Service Account.")
+        report_failure_metric("bucket_access_failed")
         sys.exit(1)
 
 def extract_and_upload_public_key(bucket_name, private_key_path):
@@ -195,9 +235,11 @@ def main():
                 key_path = fetched_key_path
             else:
                 log_error(f"Could not fetch key from GCS.")
+                report_failure_metric("key_fetch_failed")
                 sys.exit(1)
         else:
             log_error(f"Key not found: {DEFAULT_KEY_NAME} (and no BUCKET_NAME defined or storage lib missing)")
+            report_failure_metric("key_not_found_local")
             sys.exit(1)
     
     with open(key_path, 'r') as kf:
@@ -222,6 +264,7 @@ def main():
         
         if not url:
             log_error("CRITICAL: Could not fetch URL.")
+            report_failure_metric("url_fetch_failed")
             sys.exit(1)
 
         filename = scraped_filename
@@ -304,7 +347,9 @@ def main():
             # Verify download
             if scraped_sha256:
                 calc_hash = verifier.verify_zip_sha256(filename, scraped_sha256)
-                if not calc_hash: sys.exit(1)
+                if not calc_hash: 
+                    report_failure_metric("shasum_mismatch")
+                    sys.exit(1)
                 sha256 = calc_hash
             
             # Persist to OUTPUT_DIR
@@ -334,6 +379,8 @@ def main():
     try:
         avb_patcher.run_avbroot_patch(filename, output_filename, key_path)
     except Exception as e:
+        log_error(f"Patching failed: {e}")
+        report_failure_metric("avb_patch_failed")
         sys.exit(1)
 
     # Clean up input file to save RAM/Disk space (Cloud Run Optimization)
@@ -398,6 +445,7 @@ def main():
         # Upload ZIP
         if not upload_gcs_file(bucket_env, output_filename, zip_blob_path):
             log_error("Failed to upload ZIP file. Aborting.")
+            report_failure_metric("zip_upload_failed")
             sys.exit(1)
         
         # Upload CSIG
