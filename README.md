@@ -32,11 +32,6 @@ You can run the entire pipeline locally without touching Google Cloud.
     ```
 2.  **Private Key**: Ensure `cyber_rsa4096_private.pem` is in the project root.
 
-### One-Click Run
-We provide a helper script to fix permissions, generate keys, and run the builder:
-```bash
-./run_local_full.sh
-```
 
 ### Manual Commands
 If you prefer running Docker manually:
