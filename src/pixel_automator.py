@@ -5,6 +5,7 @@ import argparse
 import shutil
 from datetime import datetime, timezone
 import time
+import subprocess
 
 try:
     from google.cloud import storage
@@ -14,11 +15,10 @@ except ImportError:
 # Local modules
 from ui_utils import print_header, print_status, log, log_error, Color, get_visual_hash
 import downloader
-import downloader
 import verifier
 import avb_patcher
 
-# ================= KONFIGURACJA =================
+# ================= CONFIGURATION =================
 DEVICE_CODENAME = os.environ.get('_DEVICE_CODENAME', 'frankel') 
 OUTPUT_JSON = "build_status.json"
 DEFAULT_KEY_NAME = "cyber_rsa4096_private.pem"
@@ -68,20 +68,6 @@ def upload_gcs_file(bucket_name, source_file, destination_blob_name):
         log_error(f"GCS Upload Failed: {e}")
         return False
 
-
-def upload_gcs_file(bucket_name, source_file, destination_blob_name):
-    log(f"☁️  Uploading to GCS: {source_file} -> gs://{bucket_name}/{destination_blob_name}")
-    try:
-        client = storage.Client()
-        bucket = client.bucket(bucket_name)
-        blob = bucket.blob(destination_blob_name)
-        blob.upload_from_filename(source_file)
-        log("✅ Upload success")
-        return True
-    except Exception as e:
-        log_error(f"GCS Upload Failed: {e}")
-        return False
-
 def verify_bucket_access(bucket_name):
     """
     Fail-fast check to ensure bucket is accessible before downloading large files.
@@ -111,8 +97,6 @@ def verify_bucket_access(bucket_name):
         log_error("   Verify 'roles/storage.objectAdmin' is assigned to the Cloud Build Service Account.")
         sys.exit(1)
 
-import subprocess
-
 def extract_and_upload_public_key(bucket_name, private_key_path):
     """
     Extracts the public key from the private key and ensures it exists in the bucket.
@@ -136,7 +120,6 @@ def extract_and_upload_public_key(bucket_name, private_key_path):
         output_path = "/tmp/avb_pkmd.bin"
         
         # Use avbtool (installed within container)
-        # avbtool extract_public_key --key <private_key> --output <output>
         cmd = [
             "/usr/local/bin/avbtool.py", "extract_public_key",
             "--key", private_key_path,
@@ -154,6 +137,7 @@ def extract_and_upload_public_key(bucket_name, private_key_path):
             
     except Exception as e:
         log_error(f"Failed to publish Public Key: {e}")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--local-file', help='Local ZIP file')
@@ -253,16 +237,7 @@ def main():
                     with open(index_filename, 'r') as f:
                         indices = json.load(f)
                     
-                    # Expected output filename (we know standard naming convention or rely on input filename match if stored)
-                    # Actually, our index stores "filename" as the OUTPUT filename (patched).
-                    # But we can check if any entry has a 'url' containing our input filename or based on date?
-                    # Better: Check if we have an entry with 'android_version' or 'build_date' matching our scraped data?
-                    # Scraped filename: e.g. "shiba-ota-ap1a.240505.005-fac42312.zip"
-                    # We can check if ANY entry in index was built from this input. 
-                    # Our index schema is: device, android_version, build_date, filename (output), url.
-                    # It doesn't store INPUT sha256 explicitly in the top level lists.
-                    
-                    # Strategy: Check if the *output* file for this *input* likely already exists.
+                    # Check if the output file for this input likely already exists.
                     # Output name format: ksu_patched_{filename}
                     expected_output = f"ksu_patched_{filename}"
                     
@@ -305,9 +280,6 @@ def main():
             cloud_cache_hit = False
             if cache_bucket_env and not args.local_file:
                  log(f"🕵️  Checking Cloud Cache for: {filename}")
-                 # We simply check if the file exists in the bucket
-                 # It's usually the filename (no folder structure for cache for simplicity, or maybe OTA/?)
-                 # Let's use simple flat structure for now
                  try:
                      client = storage.Client()
                      c_bucket = client.bucket(cache_bucket_env)
@@ -347,23 +319,14 @@ def main():
     if not sha256:
         if used_cached_file and args.skip_hash_check:
             log("⚠️ Skipping SHA256 calc (User requested skip).")
-            # Use filename as dummy hash to prevent breaking json logic if it allows arbitrary strings
-            # But better to just use a marker. 
             sha256 = "TRUSTED_LOCAL_FILE"
         else:
             sha256 = verifier.calculate_sha256(abs_filename)
         
-    # Smart Caching Check (moved from workspace)
     cached_output = verifier.check_smart_cache(sha256, key_hash)
     if cached_output:
         print_status("SMART SKIP", "PASS", f"Output {cached_output} already exists for this input. Skipping build.", Color.GREEN)
         sys.exit(0)
-
-    # 4. Unpack & Verification - DEPRECATED / REMOVED
-    # Since we use avbroot with OTA images, unpacking is redundant.
-    # avbroot verifies the zip signature internally.
-    # We rely on the initial SHA256 check of the ZIP download.
-    log("ℹ️  Skipping legacy unpack/verify (avbroot handles integrity internally).")
 
     # 6. Patcher & Signing
     output_filename = f"ksu_patched_{os.path.basename(filename)}"
@@ -381,7 +344,6 @@ def main():
     except: pass
 
     # 7. Extract Images (for manual fastboot flash)
-    # Extract to a subdirectory matching the zip name (minus extension)
     extraction_subdir = os.path.join(OUTPUT_DIR, os.path.splitext(os.path.basename(output_filename))[0])
     os.makedirs(extraction_subdir, exist_ok=True)
     
@@ -396,10 +358,6 @@ def main():
     
     status = "success"
     
-    # Generate frankel.json for Custota
-    # Custota requires a URL or Relative Path. Absolute paths (starting with /) fail validation.
-    # We use a relative path (just the filename) assuming the JSON and ZIP are hosted in the same dir.
-    # This allows flexibility (http://server/builds/frankel.json -> relative zip lookup).
     url_prefix = "." 
     
     custota_json_name = f"{DEVICE_CODENAME}.json"
@@ -472,7 +430,6 @@ def main():
 
         # 9.3 Generate and Upload latest.json (for Web Flasher)
         # Using public URL format
-        # https://storage.googleapis.com/BUCKET/builds/DEVICE/DATE/SUBDIR/init_boot.img
         public_img_url = f"https://storage.googleapis.com/{bucket_env}/{base_prefix}/{os.path.basename(extraction_subdir)}/init_boot.img"
         
         latest_json_content = {
@@ -524,7 +481,6 @@ def main():
         log("✅ Central index updated.")
 
     # 10. Local Index Update (Always run to support Local Mode)
-    # Ensure date_str is available
     date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
     local_index_path = os.path.join(OUTPUT_DIR, "builds_index.json")
     local_index = []
