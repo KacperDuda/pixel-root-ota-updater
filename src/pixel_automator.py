@@ -65,36 +65,45 @@ def report_failure_metric(error_reason="unknown"):
         log_error(f"Failed to push metric: {e}")
 
 def report_success_metric():
+    _report_metric("build_success")
+
+def _create_time_series_point():
+    """Creates a Point object for the current time."""
+    now = time.time()
+    seconds = int(now)
+    nanos = int((now - seconds) * 10**9)
+    interval = monitoring_v3.TimeInterval({"end_time": {"seconds": seconds, "nanos": nanos}})
+    return monitoring_v3.Point({"interval": interval, "value": {"int64_value": 1}})
+
+def _report_metric(metric_name, labels=None):
     if not monitoring_v3:
-        log("⚠️  Success Metric skipped: google.cloud.monitoring_v3 not available.")
+        log(f"⚠️  Metric '{metric_name}' skipped: google.cloud.monitoring_v3 not available.")
         return
 
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
-        log("⚠️  Success Metric skipped: GOOGLE_CLOUD_PROJECT environment variable not set.")
+        log(f"⚠️  Metric '{metric_name}' skipped: GOOGLE_CLOUD_PROJECT environment variable not set.")
         return
 
-    log("📈 Reporting success metric to Stackdriver...")
+    log(f"📈 Reporting {metric_name} metric to Stackdriver...")
     try:
         client = monitoring_v3.MetricServiceClient()
         project_name = f"projects/{project_id}"
 
         series = monitoring_v3.TimeSeries()
-        series.metric.type = "custom.googleapis.com/pixel_automator/build_success"
+        series.metric.type = f"custom.googleapis.com/pixel_automator/{metric_name}"
         series.resource.type = "global"
         series.metric.labels["device"] = DEVICE_CODENAME
-        
-        # Point
-        now = time.time()
-        seconds = int(now)
-        nanos = int((now - seconds) * 10**9)
-        interval = monitoring_v3.TimeInterval({"end_time": {"seconds": seconds, "nanos": nanos}})
-        point = monitoring_v3.Point({"interval": interval, "value": {"int64_value": 1}})
-        series.points = [point]
+
+        if labels:
+            for key, value in labels.items():
+                series.metric.labels[key] = str(value)[:255] # Limit label value size
+
+        series.points = [_create_time_series_point()]
 
         client.create_time_series(name=project_name, time_series=[series])
     except Exception as e:
-        log_error(f"Failed to push success metric: {e}")
+        log_error(f"Failed to push {metric_name} metric: {e}")
 
 
 
