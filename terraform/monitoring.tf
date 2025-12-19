@@ -6,13 +6,32 @@ resource "google_monitoring_notification_channel" "email_alert_channel" {
   }
 }
 
+resource "google_monitoring_metric_descriptor" "build_failures" {
+  description = "Count of pixel automator build failures"
+  display_name = "Pixel Build Failures"
+  type         = "custom.googleapis.com/pixel_automator/build_failures"
+  metric_kind  = "GAUGE"
+  value_type   = "INT64"
+  unit         = "1"
+  labels {
+    key         = "device"
+    value_type  = "STRING"
+    description = "Device codename"
+  }
+  labels {
+    key         = "reason"
+    value_type  = "STRING"
+    description = "Failure reason"
+  }
+}
+
 resource "google_monitoring_alert_policy" "pixel_build_failure_policy" {
   display_name = "Pixel Build Failure Alert"
   combiner     = "OR"
   conditions {
     display_name = "Build Failure Metric Present"
     condition_threshold {
-      filter     = "metric.type=\"custom.googleapis.com/pixel_automator/build_failures\" AND resource.type=\"global\""
+      filter     = "metric.type=\"${google_monitoring_metric_descriptor.build_failures.type}\" AND resource.type=\"global\""
       duration   = "60s" # Aggregate over 1 minute
       comparison = "COMPARISON_GT"
       threshold_value = 0 # If count > 0, alert
