@@ -96,64 +96,7 @@ def report_success_metric():
     except Exception as e:
         log_error(f"Failed to push success metric: {e}")
 
-def ensure_metric_descriptors():
-    if not monitoring_v3: return
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project_id: return
 
-    log("🔧 Checking/Creating Metric Descriptors...")
-    client = monitoring_v3.MetricServiceClient()
-    project_name = f"projects/{project_id}"
-
-    metrics = [
-        {
-            "type": "custom.googleapis.com/pixel_automator/build_failures",
-            "display_name": "Pixel Build Failures",
-            "description": "Count of pixel automator build failures"
-        },
-        {
-            "type": "custom.googleapis.com/pixel_automator/build_success",
-            "display_name": "Pixel Build Success",
-            "description": "Count of pixel automator build successes"
-        }
-    ]
-
-    for m in metrics:
-        descriptor_name = f"{project_name}/metricDescriptors/{m['type']}"
-        try:
-            client.get_metric_descriptor(name=descriptor_name)
-            # log(f"   Existing: {m['type']}")
-        except:
-            log(f"   Creating missing metric: {m['type']}...")
-            try:
-                descriptor = monitoring_v3.MetricDescriptor()
-                descriptor.type = m["type"]
-                descriptor.display_name = m["display_name"]
-                descriptor.description = m["description"]
-                descriptor.metric_kind = monitoring_v3.MetricDescriptor.MetricKind.GAUGE
-                descriptor.value_type = monitoring_v3.MetricDescriptor.ValueType.INT64
-                descriptor.unit = "1"
-                
-                label_device = monitoring_v3.LabelDescriptor()
-                label_device.key = "device"
-                label_device.value_type = monitoring_v3.LabelDescriptor.ValueType.STRING
-                label_device.description = "Device codename"
-                
-                labels = [label_device]
-                
-                if "failures" in m["type"]:
-                    label_reason = monitoring_v3.LabelDescriptor()
-                    label_reason.key = "reason"
-                    label_reason.value_type = monitoring_v3.LabelDescriptor.ValueType.STRING
-                    label_reason.description = "Failure reason"
-                    labels.append(label_reason)
-
-                descriptor.labels = labels
-                
-                client.create_metric_descriptor(name=project_name, metric_descriptor=descriptor)
-                log(f"   ✅ Created: {m['type']}")
-            except Exception as e:
-                log_error(f"   ❌ Failed to create {m['type']}: {e}")
 
 def debug_paths():
     log("🔍 Debugging Key Paths:")
@@ -399,8 +342,7 @@ def main():
     bucket_env = get_bucket_env()
     verify_bucket_access(bucket_env)
     
-    # Auto-create metrics if missing
-    ensure_metric_descriptors()
+
     
     cache_bucket_env = os.environ.get('CACHE_BUCKET_NAME')
     if cache_bucket_env:
