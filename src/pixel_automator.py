@@ -364,6 +364,7 @@ def main():
         
         if not args.local_file and check_cloud_index(bucket_env, filename):
             log("🎉 Nothing to do. Exiting.")
+            report_success_metric()
             sys.exit(0)
 
         potential_cached_path = os.path.join(OUTPUT_DIR, scraped_filename)
@@ -417,6 +418,7 @@ def main():
     cached_output = verifier.check_smart_cache(sha256, key_hash)
     if cached_output:
         print_status("SMART SKIP", "PASS", f"Output {cached_output} already exists. Skipping build.", Color.GREEN)
+        report_success_metric()
         sys.exit(0)
 
     output_filename = f"ksu_patched_{os.path.basename(filename)}"
