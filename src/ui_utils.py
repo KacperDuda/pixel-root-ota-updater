@@ -13,6 +13,7 @@ class Color:
     RESET = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+    NC = RESET  # Alias for backward compatibility
 
 def print_header(text):
     print(f"\n{Color.HEADER}{Color.BOLD}=== {text} ==={Color.RESET}\n")
@@ -58,19 +59,17 @@ class ProgressBar:
         elapsed = time.time() - self.start_time
         
         # Truncate description if too long (fix for line wrapping)
-        desc_display = self.desc
+        desc_display = self.description
         if len(desc_display) > 40:
             desc_display = desc_display[:20] + "..." + desc_display[-17:]
 
         # Clear line
-        sys.stdout.write(f"\r{desc_display} {bar} {percent_str} {processed_fmt}/{total_fmt} {speed_str}\033[K")
+        sys.stdout.write(f"\r{desc_display} |{bar}| {percent:.1f}%")
         sys.stdout.flush()
 
     def finish(self):
-        if self.enabled:
-            self._print_bar()
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 def print_status(component, status, msg, color=Color.RESET):
     """
