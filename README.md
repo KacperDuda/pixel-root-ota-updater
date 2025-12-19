@@ -80,7 +80,7 @@ Flashing will happen directly from your hard drive (Offline).
 *   **Secret Manager:** Stores the private AVB key.
 *   **GCS (Storage):** Caches stock images and stores the final patched artifacts.
 
-![Workflow](pixel_auto-patcher_architecture_v2.png)
+![Workflow](diagrams/pixel_architecture_v3.png)
 
 ## 📂 File Structure
 
