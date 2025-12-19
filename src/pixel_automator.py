@@ -509,10 +509,26 @@ def main():
             json.dump(latest_json_content, f)
             
         upload_gcs_file(bucket_env, "latest.json", "latest.json")
-        update_central_index(bucket_env, output_filename, zip_blob_path, filename)
+        
+        # Report success BEFORE index updates (which are less critical)
         report_success_metric()
+        
+        try:
+            update_central_index(bucket_env, output_filename, zip_blob_path, filename)
+        except Exception as e:
+            log_error(f"Failed to update central index: {e}")
 
     update_local_index(filename, output_filename)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        log_error(f"❌ CRITICAL UNSUPPORTED EXCEPTION: {e}")
+        traceback.print_exc()
+        try:
+            report_failure_metric("uncaught_exception")
+        except:
+            pass
+        sys.exit(1)
