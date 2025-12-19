@@ -25,44 +25,12 @@ DEFAULT_KEY_NAME = "cyber_rsa4096_private.pem"
 KEY_SEARCH_PATHS = [
     "/app/secrets/cyber_rsa4096_private.pem",
     f"/app/{DEFAULT_KEY_NAME}",
-    DEFAULT_KEY_NAME
+    DEFAULT_KEY_NAME,
 ]
 OUTPUT_DIR = "/app/output"
 
 def report_failure_metric(error_reason="unknown"):
-    if not monitoring_v3:
-        log("⚠️  Metric skipped: google.cloud.monitoring_v3 not available (ImportError?).")
-        return
-
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project_id:
-        log("⚠️  Metric skipped: GOOGLE_CLOUD_PROJECT environment variable not set.")
-        return
-
-    log(f"📈 Reporting failure metric to Stackdriver (Reason: {error_reason})...")
-    try:
-        client = monitoring_v3.MetricServiceClient()
-        project_name = f"projects/{project_id}"
-
-        series = monitoring_v3.TimeSeries()
-        series.metric.type = "custom.googleapis.com/pixel_automator/build_failures"
-        series.resource.type = "global"
-        series.metric.labels["device"] = DEVICE_CODENAME
-        series.metric.labels["reason"] = str(error_reason)[:64]
-
-        now = time.time()
-        seconds = int(now)
-        nanos = int((now - seconds) * 10**9)
-        interval = monitoring_v3.TimeInterval(
-            {"end_time": {"seconds": seconds, "nanos": nanos}}
-        )
-
-        point = monitoring_v3.Point({"interval": interval, "value": {"int64_value": 1}})
-        series.points = [point]
-
-        client.create_time_series(name=project_name, time_series=[series])
-    except Exception as e:
-        log_error(f"Failed to push metric: {e}")
+    _report_metric("build_failures", labels={"reason": error_reason})
 
 def report_success_metric():
     _report_metric("build_success")
@@ -72,7 +40,9 @@ def _create_time_series_point():
     now = time.time()
     seconds = int(now)
     nanos = int((now - seconds) * 10**9)
-    interval = monitoring_v3.TimeInterval({"end_time": {"seconds": seconds, "nanos": nanos}})
+    interval = monitoring_v3.TimeInterval(
+        {"end_time": {"seconds": seconds, "nanos": nanos}}
+    )
     return monitoring_v3.Point({"interval": interval, "value": {"int64_value": 1}})
 
 def _report_metric(metric_name, labels=None):
@@ -82,7 +52,9 @@ def _report_metric(metric_name, labels=None):
 
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
-        log(f"⚠️  Metric '{metric_name}' skipped: GOOGLE_CLOUD_PROJECT environment variable not set.")
+        log(
+            f"⚠️  Metric '{metric_name}' skipped: GOOGLE_CLOUD_PROJECT environment variable not set."
+        )
         return
 
     log(f"📈 Reporting {metric_name} metric to Stackdriver...")
@@ -97,15 +69,13 @@ def _report_metric(metric_name, labels=None):
 
         if labels:
             for key, value in labels.items():
-                series.metric.labels[key] = str(value)[:255] # Limit label value size
+                series.metric.labels[key] = str(value)[:255]  # Limit label value size
 
         series.points = [_create_time_series_point()]
 
         client.create_time_series(name=project_name, time_series=[series])
     except Exception as e:
         log_error(f"Failed to push {metric_name} metric: {e}")
-
-
 
 def debug_paths():
     log("🔍 Debugging Key Paths:")
