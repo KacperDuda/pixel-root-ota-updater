@@ -22,3 +22,4 @@ resource "google_project_service" "monitoring_api" {
   service            = "monitoring.googleapis.com"
   disable_on_destroy = false
 }
+ 
