@@ -1,9 +1,7 @@
 
-// Import Styles
 import 'bulma/css/bulma.min.css';
 import './style.css';
 
-// Import Logic
 import { runWebFlasher, FlasherConfig, ValidatedFiles } from './flasher';
 import { log, toggleTheme } from './ui-utils';
 import { fetchBuildsList, BuildEntry, PUBLIC_KEY_URL } from './build-service';
@@ -11,7 +9,6 @@ import { handleConnectClick, ConnectionUI, getConnectedDevice } from './connecti
 import { startStatsPolling, stopStatsPolling } from './stats-service';
 import { FastbootDevice } from 'android-fastboot';
 
-// Variables
 let buildsList: BuildEntry[] = [];
 
 // UI Elements
@@ -28,22 +25,18 @@ const chkFlashKey = document.getElementById('chk-flash-key') as HTMLInputElement
 const chkFlashZip = document.getElementById('chk-flash-zip') as HTMLInputElement;
 const chkReboot = document.getElementById('chk-reboot') as HTMLInputElement;
 const chkLock = document.getElementById('chk-lock') as HTMLInputElement;
+
 // Elements for Stats
 const helpDiv = document.getElementById('fastboot-help') as HTMLElement;
 const statsDiv = document.getElementById('device-stats') as HTMLElement;
 const elMode = document.getElementById('stat-mode') as HTMLElement;
 const elLock = document.getElementById('stat-unlocked') as HTMLElement;
 
-// Link Theme Toggle
 if (btnTheme) btnTheme.addEventListener('click', toggleTheme);
 
-
-
-// --- INIT BUILDS ---
 async function initBuilds() {
     buildsList = await fetchBuildsList();
 
-    // Populate Select
     selVersion.innerHTML = '';
     if (buildsList.length === 0) {
         const opt = document.createElement('option');
@@ -55,23 +48,19 @@ async function initBuilds() {
     buildsList.forEach((build, index) => {
         const opt = document.createElement('option');
         opt.value = index.toString();
-        // Correct keys: build_date, filename
         opt.text = `${build.build_date} - ${build.filename}`;
-        if (index === 0) opt.selected = true; // Auto select latest
+        if (index === 0) opt.selected = true;
         selVersion.add(opt);
     });
 }
 
-// Event Listeners
 window.addEventListener('DOMContentLoaded', () => {
     initBuilds();
 
-    // Init theme based on preference or default
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
         document.documentElement.setAttribute('data-theme', 'dark');
     }
 
-    // Connect
     if (btnConnect) btnConnect.addEventListener('click', () => {
         const ui: ConnectionUI = {
             btnConnect, btnFlash, lblStatus, lblDevice,
@@ -80,7 +69,6 @@ window.addEventListener('DOMContentLoaded', () => {
         handleConnectClick(ui);
     });
 
-    // Start Flash
     if (btnFlash) btnFlash.addEventListener('click', async () => {
         const connectedDevice = getConnectedDevice();
         if (!connectedDevice) {
@@ -96,13 +84,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
         const selectedBuild = buildsList[selIdx];
 
-        // --- Config ---
         const config: FlasherConfig = {
             unlock: chkUnlock.checked,
             flashKey: chkFlashKey.checked,
             flashZip: chkFlashZip.checked,
             lock: chkLock.checked,
-            wipeData: false, // Hardcoded for now, or add UI
+            wipeData: false,
             autoReboot: chkReboot ? chkReboot.checked : true
         };
 
@@ -110,10 +97,8 @@ window.addEventListener('DOMContentLoaded', () => {
         btnFlash.classList.add('is-loading');
 
         try {
-            // Stop polling to prevent interference
             stopStatsPolling();
 
-            // --- Cloud Key Fetch Logic ---
             let keyBlob: Blob | null = null;
             if (config.flashKey) {
                 log("Fetching AVB Public Key from Cloud...");
@@ -132,8 +117,6 @@ window.addEventListener('DOMContentLoaded', () => {
                 zipUrl: selectedBuild ? selectedBuild.url : null
             };
 
-            // Run Flasher
-            // Pass the device directly. It is already a FastbootDevice instance.
             await runWebFlasher(config, files, connectedDevice as FastbootDevice);
 
         } catch (e: any) {
@@ -142,7 +125,6 @@ window.addEventListener('DOMContentLoaded', () => {
             btnFlash.disabled = false;
             btnFlash.classList.remove('is-loading');
 
-            // Restart polling
             if (connectedDevice) {
                 startStatsPolling(connectedDevice, (stats) => {
                     if (elMode) {

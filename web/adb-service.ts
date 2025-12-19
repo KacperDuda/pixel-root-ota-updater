@@ -12,21 +12,17 @@ export class AdbService {
      */
     async connect(device: USBDevice): Promise<void> {
         try {
-            // 1. Backend
             const backend = new AdbWebUsbBackend(device, undefined, navigator.usb);
             const connection = await backend.connect();
 
-            // 2. Credential Store
             const CredentialStore = new AdbWebCredentialStore();
 
-            // 3. Authenticate
             const transport = await AdbDaemonTransport.authenticate({
                 serial: device.serialNumber!,
                 connection: connection as any,
                 credentialStore: CredentialStore
             });
 
-            // 4. Create Adb Instance
             this.adb = new Adb(transport);
         } catch (e: any) {
             console.error("AdbService Connect Failed:", e);
@@ -41,8 +37,6 @@ export class AdbService {
         if (!this.adb) throw new Error("ADB not connected");
 
         const runShell = async (cmd: string) => {
-            // Use shellProtocol.spawnWaitText for simple output
-            // requires fallback if shellProtocol is undefined (rare on modern devices)
             if (!this.adb!.subprocess.shellProtocol) {
                 throw new Error("Shell protocol not supported");
             }
@@ -83,7 +77,6 @@ export class AdbService {
         try {
             await this.adb.power.bootloader();
         } catch (e: any) {
-            // Ignore NetworkError/Transfer errors as device disconnects immediately
             if (!e.message.includes('NetworkError') && !e.message.includes('transferIn')) {
                 console.warn("Reboot command warning:", e);
             }

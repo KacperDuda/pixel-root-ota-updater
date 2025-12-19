@@ -15,7 +15,6 @@ export interface ConnectionUI {
     elLock: HTMLElement;
 }
 
-// Global state for this module (or could be class members)
 let connectedDevice: FastbootDevice | null = null;
 let currentAdbService: AdbService | null = null;
 
@@ -29,18 +28,15 @@ export async function handleConnectClick(ui: ConnectionUI) {
         return;
     }
 
-    // DEBOUNCE
     ui.btnConnect.disabled = true;
     ui.btnConnect.classList.add('is-loading');
 
     try {
         log("Requesting WebUSB device...");
 
-        // CLEANUP
         if (connectedDevice) {
             try {
                 log("Resetting previous connection...", "info");
-                // Access internal device if needed for cleanup
                 const rawDevice = (connectedDevice as any).device || (connectedDevice as any)._device;
                 if (rawDevice && typeof rawDevice.close === 'function') {
                     await rawDevice.close();
@@ -50,7 +46,6 @@ export async function handleConnectClick(ui: ConnectionUI) {
             connectedDevice = null;
         }
         if (currentAdbService) {
-            // Dispose to release WebUSB claim
             try {
                 if (typeof currentAdbService.dispose === 'function') {
                     await currentAdbService.dispose();
@@ -66,7 +61,7 @@ export async function handleConnectClick(ui: ConnectionUI) {
             filters: [{ vendorId: 0x18d1 }]
         });
 
-        if (!selectedDevice) return; // Cancelled
+        if (!selectedDevice) return;
 
         // PRE-VALIDATION: ADB Check
         let isAdb = false;
@@ -112,7 +107,6 @@ export async function handleConnectClick(ui: ConnectionUI) {
         if (ui.helpDiv) ui.helpDiv.style.display = 'block';
         if (ui.statsDiv) ui.statsDiv.style.display = 'block';
 
-        // START POLLING
         startStatsPolling(connectedDevice!, (stats) => {
             if (ui.elMode) {
                 ui.elMode.textContent = (stats.isUserspace) ? 'FastbootD (Userspace)' : 'Bootloader';
@@ -126,7 +120,6 @@ export async function handleConnectClick(ui: ConnectionUI) {
             const isValidState = !stats.isUserspace;
             ui.btnFlash.disabled = !isValidState;
 
-            // Optional: Hide help in bootloader
             if (isValidState && ui.helpDiv) ui.helpDiv.style.display = 'none';
         });
 
@@ -159,7 +152,6 @@ async function handleAdbMode(device: USBDevice, ui: ConnectionUI) {
         log("Could not fetch ADB info: " + adbErr.message, "error");
     }
 
-    // Show Help with Reboot Button
     if (ui.helpDiv) {
         ui.helpDiv.style.display = 'block';
         ui.helpDiv.className = 'message is-small is-info mt-3';
@@ -183,7 +175,6 @@ export async function tryRebootToBootloader(ui: ConnectionUI) {
     try {
         log("Trying ADB Reboot (WebUSB)...");
 
-        // Send Command
         try {
             if (currentAdbService) {
                 await currentAdbService.rebootToBootloader();
@@ -206,7 +197,6 @@ export async function tryRebootToBootloader(ui: ConnectionUI) {
             ui.lblStatus.className = "tag is-warning is-medium";
         }
 
-        // Re-Auth Prompt
         if (ui.btnConnect) {
             setTimeout(() => {
                 if (ui.lblStatus && ui.lblStatus.textContent === "REBOOTING...") {
@@ -217,7 +207,6 @@ export async function tryRebootToBootloader(ui: ConnectionUI) {
             }, 3000);
         }
 
-        // POOL LOOP
         for (let i = 0; i < 40; i++) {
             await new Promise(r => setTimeout(r, 500));
 
@@ -283,8 +272,6 @@ export async function tryRebootToBootloader(ui: ConnectionUI) {
 }
 
 function handleConnectionError(e: any) {
-    // Shared error logic
-    // ... Copy from app.ts (simplified)
     console.error(e);
     if ((e.name === 'SecurityError' || e.message.includes('Access denied')) && !e.message.includes('ADB Mode')) {
         showPermissionError();
