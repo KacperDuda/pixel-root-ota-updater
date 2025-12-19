@@ -72,7 +72,7 @@ class ProgressBar:
             sys.stdout.write("\n")
             sys.stdout.flush()
 
-def print_status(component, status, msg, color=Color.NC):
+def print_status(component, status, msg, color=Color.RESET):
     """
     Format: [COMPONENT] [STATUS] Message
     """

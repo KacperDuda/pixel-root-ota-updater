@@ -1,9 +1,9 @@
+```python
 import os
 import hashlib
 import json
-import os
 import zipfile
-from ui_utils import print_status, Color, log, log_error
+from ui_utils import print_status, Color, log, log_error, get_visual_hash
 
 def calculate_sha256(filepath):
     sha256_hash = hashlib.sha256()
@@ -18,7 +18,9 @@ def calculate_string_sha256(string_data):
 def verify_zip_sha256(filepath, expected_sha256):
     log(f"Verifying SHA256 for {os.path.basename(filepath)}...")
     calculated_sha256 = calculate_sha256(filepath)
-    if calculated_sha256 == expected_sha256:
+    print(f"Visual Hash: {get_visual_hash(calculated_sha256)}")
+    
+    if calculated_sha256.lower() == expected_sha256.lower():
         print_status("VERIFY", "SUCCESS", "SHA256 Match", Color.GREEN)
         return calculated_sha256
     else:
@@ -43,11 +45,6 @@ def verify_zip_integrity(filepath):
 
 def check_smart_cache(input_file_sha, key_hash): 
     # Use output directory to look for previous builds
-    # Logic:
-    # 1. We keep a local 'builds_index.json' or similiar metadata
-    # 2. Or we parse filenames? No, filenames don't store input hash.
-    # 3. We can look at a special mapping file: input_map.json
-    
     mapping_file = "/app/output/input_map.json"
     if not os.path.exists(mapping_file):
         return None
@@ -56,7 +53,6 @@ def check_smart_cache(input_file_sha, key_hash):
         with open(mapping_file, 'r') as f:
             mapping = json.load(f)
             
-        # Key format: input_hash + key_hash (if key changes, output changes)
         composite_key = f"{input_file_sha}_{key_hash}"
         
         if composite_key in mapping:
@@ -69,12 +65,21 @@ def check_smart_cache(input_file_sha, key_hash):
         
     return None
 
-        calculated_hash = calculate_sha256(filename)
-        print(f"Visual Hash: {get_visual_hash(calculated_hash)}")
+def update_smart_cache(input_file_sha, key_hash, output_filename):
+    mapping_file = "/app/output/input_map.json"
+    mapping = {}
     
-    if calculated_hash.lower() == expected_sha256.lower():
-        print_status("HASH", "OK", "SHA256 Match", Color.GREEN)
-        return calculated_hash 
-    else:
-        log_error(f"CHECKSUM MISMATCH! Expected: {expected_sha256}, Got: {calculated_hash}")
-        return False
+    if os.path.exists(mapping_file):
+        try:
+            with open(mapping_file, 'r') as f:
+                mapping = json.load(f)
+        except: pass
+        
+    composite_key = f"{input_file_sha}_{key_hash}"
+    mapping[composite_key] = output_filename
+    
+    try:
+        with open(mapping_file, 'w') as f:
+            json.dump(mapping, f, indent=4)
+    except: pass
+```
