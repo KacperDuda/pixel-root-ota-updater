@@ -47,7 +47,8 @@ steps:
           --memory 16Gi --cpu 4 \
           --set-env-vars=_DEVICE_CODENAME=${_DEVICE_CODENAME} \
           --set-env-vars=_BUCKET_NAME=${_BUCKET_NAME} \
-          --set-env-vars=CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME}
+          --set-env-vars=CACHE_BUCKET_NAME=${_CACHE_BUCKET_NAME} \
+          --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
 
   # 5. Uruchom testowo (Jeśli padnie, build się zatrzyma i nie nadpisze latest)
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -72,7 +73,8 @@ steps:
         gcloud run jobs update ${_REPO_NAME}-job \
           --image ${_DOCKER_REPO_URL}/pixel-automator:latest \
           --region ${_REGION} \
-          --memory 16Gi --cpu 4
+          --memory 16Gi --cpu 4 \
+          --set-env-vars=GOOGLE_CLOUD_PROJECT=${PROJECT_ID}
 
   # 3. Build Web Interface (Vite/NPM)
   - name: 'node:20'
