@@ -31,10 +31,12 @@ OUTPUT_DIR = "/app/output"
 
 def report_failure_metric(error_reason="unknown"):
     if not monitoring_v3:
+        log("⚠️  Metric skipped: google.cloud.monitoring_v3 not available (ImportError?).")
         return
 
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
+        log("⚠️  Metric skipped: GOOGLE_CLOUD_PROJECT environment variable not set.")
         return
 
     log(f"📈 Reporting failure metric to Stackdriver (Reason: {error_reason})...")
@@ -63,10 +65,14 @@ def report_failure_metric(error_reason="unknown"):
         log_error(f"Failed to push metric: {e}")
 
 def report_success_metric():
-    if not monitoring_v3: return
+    if not monitoring_v3:
+        log("⚠️  Success Metric skipped: google.cloud.monitoring_v3 not available.")
+        return
 
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if not project_id: return
+    if not project_id:
+        log("⚠️  Success Metric skipped: GOOGLE_CLOUD_PROJECT environment variable not set.")
+        return
 
     log("📈 Reporting success metric to Stackdriver...")
     try:
