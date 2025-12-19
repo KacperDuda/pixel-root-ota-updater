@@ -25,5 +25,5 @@ variable "github_repo_name" {
 variable "alert_email_address" {
   description = "Email address to receive Google Cloud Monitoring alerts"
   type        = string
-  default     = "user@example.com"
+  default     = "kacperduda2002@gmail.com"
 }
