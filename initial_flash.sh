@@ -1,8 +1,4 @@
 #!/bin/bash
-# initial_flash.sh - SAFE Universal Flasher for Pixel Devices
-# Supports both Factory Images (Fastboot) and OTA Images (Recovery/Sideload).
-# Enforces strict safety checks.
-# V5.0 - Universal Safety Edition
 
 # Colors
 RED='\033[0;31m'
@@ -14,11 +10,8 @@ NC='\033[0m'
 echo -e "${CYAN}=== PIXEL UNIVERSAL SAFETY FLASHER v5.0 ===${NC}"
 echo -e "${YELLOW}Operating in PARANOID SAFETY MODE.${NC}"
 
-# Configuration
 OUTPUT_DIR="output"
 
-# 1. Find the Image (ZIP)
-# Priority: Patched OTA -> Factory Image -> Stock OTA
 ZIP_FILE=$(find "$OUTPUT_DIR" -name "ksu_patched_*.zip" | head -n 1)
 
 if [ -z "$ZIP_FILE" ]; then
@@ -34,7 +27,6 @@ if [ -z "$ZIP_FILE" ]; then
 fi
 echo -e "Target Image: ${CYAN}$ZIP_FILE${NC}"
 
-# 2. Identify Image Type
 if unzip -l "$ZIP_FILE" | grep -q "payload.bin"; then
     MODE="OTA"
     echo -e "Detected Type: ${GREEN}OTA IMAGE (Recovery Sideload)${NC}"
@@ -46,9 +38,6 @@ else
     exit 1
 fi
 
-# ---------------------------------------------------------
-# PHASE 1: PRE-CONFIRMATION
-# ---------------------------------------------------------
 echo -e "\n${CYAN}--- PHASE 1: CONFIRMATION ---${NC}"
 echo -e "You are about to flash: $ZIP_FILE"
 echo -e "Mode: $MODE"
@@ -65,23 +54,17 @@ if [ "$CONFIRM" != "YES" ]; then
     exit 1
 fi
 
-# ---------------------------------------------------------
-# PHASE 2: PREPARATION & FLASH
-# ---------------------------------------------------------
 echo -e "\n${CYAN}--- PHASE 2: PREPARATION & FLASH ---${NC}"
 
 if [ "$MODE" == "OTA" ]; then
-    # OTA FLOW (ADB SIDELOAD)
     echo -e "${YELLOW}INSTRUCTIONS FOR OTA SIDELOAD:${NC}"
     echo "1. Ensure device is in 'Recovery Mode'."
-    echo "   (From Fastboot: Select Recovery Mode -> Power+VolUp to see menu -> 'Apply update from ADB')"
     echo "2. If you are in Fastboot, enter Recovery NOW."
     
     echo -ne "\nPress ENTER when device is in 'Apply update from ADB' mode..."
     read
     
     echo "Checking ADB connection..."
-    # Warning: Sideload devices sometimes show up as 'sideload' or 'device'
     ADB_STATUS=$(adb devices | grep -v "List" | grep -v "^$" | awk '{print $2}')
     if [[ "$ADB_STATUS" == "sideload" ]] || [[ "$ADB_STATUS" == "device" ]]; then
         echo -e "${GREEN}Device Connected via ADB ($ADB_STATUS).${NC}"
@@ -89,12 +72,10 @@ if [ "$MODE" == "OTA" ]; then
         adb sideload "$ZIP_FILE"
     else
         echo -e "${RED}❌ Device not found in ADB Sideload mode!${NC}"
-        echo "Please check connection and select 'Apply update from ADB' on phone."
         exit 1
     fi
 
 elif [ "$MODE" == "FACTORY" ]; then
-    # FACTORY FLOW (FASTBOOT)
     echo -e "${YELLOW}INSTRUCTIONS FOR FACTORY FLASH (SAFE MODE):${NC}"
     echo "1. Ensure device is in 'Fastboot Mode' (Bootloader)."
     
@@ -102,7 +83,6 @@ elif [ "$MODE" == "FACTORY" ]; then
     while ! fastboot devices | grep -iq "fastboot"; do sleep 1; done
     echo -e "${GREEN}Device Connected.${NC}"
 
-    # Strict Safety Check
     PRODUCT=$(fastboot getvar product 2>&1 | grep "product" | awk '{print $2}')
     if [ "$PRODUCT" != "frankel" ]; then
         echo -e "${RED}⛔ STOP: Wrong device or Crash Mode ($PRODUCT). Expected 'frankel'.${NC}"
@@ -117,7 +97,6 @@ elif [ "$MODE" == "FACTORY" ]; then
     
     unzip -o "$ZIP_FILE" -d "$WORK_DIR" > /dev/null
     
-    # Handle nested image-*.zip
     NESTED_ZIP=$(find "$WORK_DIR" -name "image-*.zip" | head -n 1)
     if [ -n "$NESTED_ZIP" ]; then
         echo "Unpacking nested images..."
@@ -129,7 +108,6 @@ elif [ "$MODE" == "FACTORY" ]; then
     echo -e "${CYAN}Starting Safe Flash Sequence...${NC}"
     echo -e "${RED}SKIPPING BOOTLOADER AND RADIO FLASH FOR SAFETY.${NC}"
 
-    # 1. Flash Boot/Static Partitions (Bootloader Mode)
     echo "Flashing static partitions..."
     for IMG in boot.img dtbo.img vbmeta.img vbmeta_system.img vbmeta_vendor.img vendor_boot.img init_boot.img; do
         if [ -f "$IMG" ]; then
@@ -138,7 +116,6 @@ elif [ "$MODE" == "FACTORY" ]; then
         fi
     done
     
-    # 2. Reboot to FastbootD for Dynamic Partitions
     echo -e "${YELLOW}Rebooting to FastbootD (Userspace) for generic partitions...${NC}"
     fastboot reboot fastboot
     
@@ -146,7 +123,6 @@ elif [ "$MODE" == "FACTORY" ]; then
     sleep 5
     while ! fastboot devices | grep -iq "fastboot"; do sleep 1; done
     
-    # 3. Flash Dynamic Partitions
     echo "Flashing dynamic partitions..."
     for IMG in system.img system_ext.img product.img vendor.img vendor_dlkm.img system_dlkm.img; do
          if [ -f "$IMG" ]; then
@@ -155,7 +131,6 @@ elif [ "$MODE" == "FACTORY" ]; then
         fi
     done
 
-    # 4. Wipe Data (Optional but recommended for factory flash usually)
     echo -e "\n${YELLOW}Do you want to WIPE USER DATA? (Recommended for clean flash)${NC}"
     echo "Type YES to wipe, any other key to keep data:"
     read -r DO_WIPE
@@ -180,9 +155,6 @@ fi
 
 echo -e "\n${GREEN}✅ SUCCESS! Operation Complete.${NC}"
 
-# ---------------------------------------------------------
-# PHASE 4: POST-FLASH SETUP (Wireless Updater)
-# ---------------------------------------------------------
 echo -e "\n${CYAN}--- PHASE 4: POST-FLASH SETUP ---${NC}"
 echo -e "${YELLOW}Do you want to install the Wireless Updater (Custota) now?${NC}"
 echo "1. The device will reboot."
@@ -196,7 +168,6 @@ if [[ "$INSTALL_OTA" == "Y" || "$INSTALL_OTA" == "y" ]]; then
     echo -e "\n${CYAN}Waiting for device to boot into Android...${NC}"
     echo "(This takes 1-2 minutes. Stay plugged in.)"
     
-    # Wait loop
     while ! adb devices | grep -w "device" > /dev/null; do
         sleep 3
     done
@@ -204,7 +175,6 @@ if [[ "$INSTALL_OTA" == "Y" || "$INSTALL_OTA" == "y" ]]; then
     echo -e "${GREEN}Device Detected!${NC}"
     echo "Running Wireless Setup..."
     
-    # Inline Wireless Setup
     echo "Downloading Custota..."
     CUSTOTA_APK="Custota.apk"
     curl -L -o "$CUSTOTA_APK" https://github.com/chenxiaolong/Custota/releases/latest/download/app-release.apk
