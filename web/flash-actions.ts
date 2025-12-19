@@ -1,9 +1,5 @@
-
 import { FastbootDevice } from 'android-fastboot';
 
-/**
- * Log wrapper (matches expected UI signature, can be injected or reused)
- */
 function log(msg: string, type: 'info' | 'error' | 'success' = 'info') {
     const container = document.getElementById('log-container');
     if (!container) return;
@@ -22,9 +18,6 @@ function log(msg: string, type: 'info' | 'error' | 'success' = 'info') {
     container.scrollTop = container.scrollHeight;
 }
 
-/**
- * Shows a blocking warning modal (reused from original)
- */
 function showBlockingWarning(text: string, countdownSecs = 60): Promise<boolean> {
     return new Promise((resolve) => {
         const modal = document.createElement('div');
@@ -60,7 +53,6 @@ function showBlockingWarning(text: string, countdownSecs = 60): Promise<boolean>
             document.body.removeChild(modal);
         };
 
-        // Close X
         closeBtn.onclick = () => {
             cleanup();
             resolve(false);
@@ -75,7 +67,7 @@ function showBlockingWarning(text: string, countdownSecs = 60): Promise<boolean>
             } else {
                 confirmBtn.textContent = `I Understand (Wait ${left}s)`;
             }
-            if (left < -300) { // Safety timeout (5 mins)
+            if (left < -300) {
                 cleanup();
                 resolve(false);
             }
@@ -94,9 +86,6 @@ function showBlockingWarning(text: string, countdownSecs = 60): Promise<boolean>
 }
 
 
-/**
- * 1. UNLOCK FLOW
- */
 export async function performUnlock(device: FastbootDevice) {
     log("Checking bootloader state...");
     let isUnlocked = 'no';
@@ -135,9 +124,6 @@ export async function performUnlock(device: FastbootDevice) {
     await device.waitForConnect();
 }
 
-/**
- * 2. FLASH KEY FLOW
- */
 export async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
     if (!keyBlob) throw new Error("No AVB key provided!");
 
@@ -147,24 +133,20 @@ export async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
         await device.runCommand('reboot-bootloader');
         await device.waitForConnect();
 
-        // Double check
         isUserspace = await device.getVariable('is-userspace');
         if (isUserspace === 'yes') {
             throw new Error("Failed to switch to Bootloader. Please manually Reboot to Bootloader.");
         }
     }
 
-    // Check lock state
     let unlocked = await device.getVariable('unlocked');
     unlocked = (unlocked || '').trim().toLowerCase();
 
-    // Validation
     log(`Key Size: ${keyBlob.size} bytes`);
     if (keyBlob.size < 64 || keyBlob.size > 10240) {
         throw new Error(`Invalid AVB Key size (${keyBlob.size} bytes). Download might have failed.`);
     }
 
-    // Checking for HTML/JSON error response (common if 404/500 returns text)
     const headerSlice = keyBlob.slice(0, 50);
     const headerText = await headerSlice.text();
     if (headerText.includes('<!DOCTYPE') || headerText.includes('<html') || headerText.includes('{"error"')) {
@@ -178,11 +160,9 @@ export async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
     log("Erasing old AVB key...");
     await device.runCommand('erase:avb_custom_key');
 
-    // Wait for stability
     log("Waiting for device sync...");
     await new Promise(r => setTimeout(r, 12000));
 
-    // Flash Phase with Retry
     log("Flashing new AVB Custom Key...");
     let lastError;
 
@@ -195,7 +175,6 @@ export async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
         } catch (e: any) {
             console.warn(`Flash attempt ${attempt} failed:`, e);
             lastError = e;
-            // Short wait before retry
             await new Promise(r => setTimeout(r, 1000));
         }
     }
@@ -206,9 +185,6 @@ export async function flashCustomKey(device: FastbootDevice, keyBlob: Blob) {
     );
 }
 
-/**
- * 3. LOCK FLOW
- */
 export async function performLock(device: FastbootDevice) {
     const isUserspace = await device.getVariable('is-userspace');
     if (isUserspace === 'yes') {

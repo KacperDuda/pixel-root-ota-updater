@@ -1,6 +1,4 @@
-
 import { FastbootDevice } from 'android-fastboot';
-// No UI imports needed here! Pure logic.
 
 export interface DeviceStats {
     isUserspace: boolean; // true = FastbootD, false = Bootloader
@@ -25,7 +23,6 @@ export function startStatsPolling(
 
     pollInterval = setInterval(async () => {
         try {
-            // Check Mode
             let isUserspace = 'no';
             try {
                 isUserspace = await device.getVariable('is-userspace');
@@ -33,7 +30,6 @@ export function startStatsPolling(
                 // Often fails if device is busy, assume bootloader/error
             }
 
-            // Check Unlocked
             let unlocked = 'unknown';
             try {
                 unlocked = await device.getVariable('unlocked');
@@ -45,8 +41,7 @@ export function startStatsPolling(
             });
 
         } catch (e) {
-            // If completely failed, maybe stop polling or just retry?
-            // Retry for now.
+            // If completely failed, retry next tick
         }
     }, intervalMs);
 }
