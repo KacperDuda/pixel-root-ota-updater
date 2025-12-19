@@ -66,7 +66,7 @@ if [ "$CONFIRM" != "YES" ]; then
 fi
 
 # ---------------------------------------------------------
-# PHASE 2: DEVICE PREPARATION & FLASH
+# PHASE 2: PREPARATION & FLASH
 # ---------------------------------------------------------
 echo -e "\n${CYAN}--- PHASE 2: PREPARATION & FLASH ---${NC}"
 
@@ -148,8 +148,6 @@ elif [ "$MODE" == "FACTORY" ]; then
     
     # 3. Flash Dynamic Partitions
     echo "Flashing dynamic partitions..."
-    # Note: We use 'flash' not 'update' to avoid full wipe unless requested, but here we just flash partitions.
-    # Safe list of dynamic partitions
     for IMG in system.img system_ext.img product.img vendor.img vendor_dlkm.img system_dlkm.img; do
          if [ -f "$IMG" ]; then
             echo " - Flashing $IMG..."
@@ -157,8 +155,7 @@ elif [ "$MODE" == "FACTORY" ]; then
         fi
     done
 
-    # 4. Wipe Data (Optional but recommended for factory flash usually, but let's ASK or just SKIP for safety?)
-    # Original script had -w. We will Prompt.
+    # 4. Wipe Data (Optional but recommended for factory flash usually)
     echo -e "\n${YELLOW}Do you want to WIPE USER DATA? (Recommended for clean flash)${NC}"
     echo "Type YES to wipe, any other key to keep data:"
     read -r DO_WIPE
