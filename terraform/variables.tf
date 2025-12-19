@@ -1,23 +1,23 @@
 variable "gcp_project_id" {
-  description = "Twoje ID projektu w Google Cloud."
+  description = "Your Google Cloud Project ID."
   type        = string
   default     = "sabre-gcp-project"
 }
 
 variable "gcp_region" {
-  description = "Region GCP do wdrożenia zasobów."
+  description = "GCP Region for resources."
   type        = string
-  default     = "europe-central2" # Warszawa
+  default     = "europe-central2"
 }
 
 variable "github_owner" {
-  description = "Właściciel repozytorium na GitHubie."
+  description = "GitHub Repository Owner."
   type        = string
   default     = "KacperDuda"
 }
 
 variable "github_repo_name" {
-  description = "Nazwa repozytorium na GitHubie."
+  description = "GitHub Repository Name."
   type        = string
   default     = "pixel-root-ota-updater"
 }
