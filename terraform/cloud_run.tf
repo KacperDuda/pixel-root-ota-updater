@@ -22,6 +22,10 @@ resource "google_cloud_run_v2_job" "automator_job" {
           value = "frankel"
         }
         env {
+          name  = "GOOGLE_CLOUD_PROJECT"
+          value = var.gcp_project_id
+        }
+        env {
           name  = "_BUCKET_NAME"
           value = google_storage_bucket.release_bucket.name
         }
