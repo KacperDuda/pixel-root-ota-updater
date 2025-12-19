@@ -1,7 +1,7 @@
-
 import sys
 import time
 import os
+import re
 
 class Color:
     GREEN = '\033[0;32m'
@@ -73,9 +73,7 @@ class ProgressBar:
             bar = '█' * filled + '-' * (bar_len - filled)
             bar = f"|{bar}|"
         else:
-            # removing indentation to fix aesthetics
             bar_len = 10
-            # simple spinner or just size
             steps = ['-', '\\', '|', '/']
             idx = int(elapsed * 4) % 4
             bar = f"[{steps[idx]}]"
@@ -123,11 +121,10 @@ def print_table(headers, data):
     col_widths = [len(h) for h in headers]
     
     # Calculate widths
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    
     for row in data:
         for i, val in enumerate(row):
-            # len() might be wrong with ansi codes, stripping for calc
-            import re
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             text = ansi_escape.sub('', str(val))
             col_widths[i] = max(col_widths[i], len(text))
     
@@ -143,9 +140,6 @@ def print_table(headers, data):
     for row in data:
         row_str = ""
         for i, val in enumerate(row):
-            # We must pad manually because f-string padding counts ansi codes as length
-            import re
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
             text_len = len(ansi_escape.sub('', str(val)))
             padding = col_widths[i] - text_len
             row_str += f"{str(val)}{' ' * padding}"
@@ -158,23 +152,15 @@ def get_visual_hash(sha256_hex):
     Generates a unique, colorful, short visual representation of a SHA256 hash.
     Uses user requested symbols: @ # $ % & +
     """
-    # Define symbols and colors
     symbols = ['@', '#', '$', '%', '&', '+']
     # Mapping colors: Red, Green, Yellow, Blue, Cyan, Magenta
     colors = [Color.RED, Color.GREEN, Color.YELLOW, Color.BLUE, Color.CYAN, '\033[0;35m']
     
     visual_str = ""
-    
-    # Process the hash byte by byte (2 hex chars)
-    # We will take 16 bytes (32 hex chars) to form a 16-symbol visual hash.
-    # We scan the string with stride 2.
-    
     bytes_data = bytes.fromhex(sha256_hex)
     
     # Limit to 16 symbols for compactness as requested "shorter"
-    
     for i in range(0, len(bytes_data), 2):
-        # Actually loop 16 times max
         if i/2 >= 16: break
         
         b = bytes_data[i]

@@ -1,8 +1,6 @@
 import os
 import hashlib
 import json
-import subprocess
-from datetime import datetime
 from ui_utils import print_status, Color, ProgressBar, log_error, log, get_visual_hash
 
 OUTPUT_JSON = "build_status.json"
@@ -36,7 +34,7 @@ def get_cached_hash_from_status(filename):
             cached_hash = data.get("input", {}).get("sha256")
             if cached_hash and len(cached_hash) == 64:  # Valid SHA256
                 return cached_hash
-    except:
+    except Exception:
         pass
     return None
 
@@ -56,16 +54,16 @@ def check_smart_cache(input_sha256, key_content_sha256):
         last_input_sha = data.get("input", {}).get("sha256")
         if last_input_sha != input_sha256: return False
         
-        # We could check key_hash too if we passed it in build_status.json
-        # The previous workspace code did check it.
-        
         output_filename = data.get("output", {}).get("filename")
-        if not output_filename or not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", output_filename)) and not os.path.exists(output_filename): 
-             # Check relative to CWD or absolute
+        if not output_filename:
+            return False
+            
+        # Check relative to CWD or absolute
+        if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "output", output_filename)) and not os.path.exists(output_filename): 
              if not os.path.exists(output_filename): return False
         
         return output_filename
-    except:
+    except Exception:
         return False
 
 def verify_zip_sha256(filename, expected_sha256):
@@ -85,9 +83,7 @@ def verify_zip_sha256(filename, expected_sha256):
     
     if calculated_hash.lower() == expected_sha256.lower():
         print_status("HASH", "OK", "SHA256 Match", Color.GREEN)
-        return calculated_hash # Return hash on success
+        return calculated_hash 
     else:
         log_error(f"CHECKSUM MISMATCH! Expected: {expected_sha256}, Got: {calculated_hash}")
         return False
-
-
