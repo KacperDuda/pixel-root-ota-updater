@@ -62,6 +62,34 @@ def report_failure_metric(error_reason="unknown"):
     except Exception as e:
         log_error(f"Failed to push metric: {e}")
 
+def report_success_metric():
+    if not monitoring_v3: return
+
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project_id: return
+
+    log("📈 Reporting success metric to Stackdriver...")
+    try:
+        client = monitoring_v3.MetricServiceClient()
+        project_name = f"projects/{project_id}"
+
+        series = monitoring_v3.TimeSeries()
+        series.metric.type = "custom.googleapis.com/pixel_automator/build_success"
+        series.resource.type = "global"
+        series.metric.labels["device"] = DEVICE_CODENAME
+        
+        # Point
+        now = time.time()
+        seconds = int(now)
+        nanos = int((now - seconds) * 10**9)
+        interval = monitoring_v3.TimeInterval({"end_time": {"seconds": seconds, "nanos": nanos}})
+        point = monitoring_v3.Point({"interval": interval, "value": {"int64_value": 1}})
+        series.points = [point]
+
+        client.create_time_series(name=project_name, time_series=[series])
+    except Exception as e:
+        log_error(f"Failed to push success metric: {e}")
+
 def debug_paths():
     log("🔍 Debugging Key Paths:")
     if os.path.exists("/app/secrets"):
@@ -493,6 +521,7 @@ def main():
             
         upload_gcs_file(bucket_env, "latest.json", "latest.json")
         update_central_index(bucket_env, output_filename, zip_blob_path, filename)
+        report_success_metric()
 
     update_local_index(filename, output_filename)
 

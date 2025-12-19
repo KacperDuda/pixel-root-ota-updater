@@ -17,3 +17,8 @@ resource "google_project_service" "cloud_run_api" {
   service            = "run.googleapis.com"
   disable_on_destroy = false
 }
+
+resource "google_project_service" "monitoring_api" {
+  service            = "monitoring.googleapis.com"
+  disable_on_destroy = false
+}

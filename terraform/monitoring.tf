@@ -25,6 +25,20 @@ resource "google_monitoring_metric_descriptor" "build_failures" {
   }
 }
 
+resource "google_monitoring_metric_descriptor" "build_success" {
+  description = "Count of pixel automator build successes"
+  display_name = "Pixel Build Success"
+  type         = "custom.googleapis.com/pixel_automator/build_success"
+  metric_kind  = "GAUGE"
+  value_type   = "INT64"
+  unit         = "1"
+  labels {
+    key         = "device"
+    value_type  = "STRING"
+    description = "Device codename"
+  }
+}
+
 resource "google_monitoring_alert_policy" "pixel_build_failure_policy" {
   display_name = "Pixel Build Failure Alert"
   combiner     = "OR"
