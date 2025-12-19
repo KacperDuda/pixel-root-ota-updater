@@ -7,21 +7,16 @@ from ui_utils import print_status, Color, log_error, log
 EXTRACTED_CACHE_DIR = "/app/output/extracted_cache"
 
 def run_avbroot_patch(filename, output_filename, key_path, avb_passphrase=None):
-    """
-    Runs avbroot to patch and sign the firmware.
-    """
     log("Passing to avbroot for patching and signing...")
     
-    # Use pre-bundled Magisk from Docker image
     magisk_path = "/usr/local/share/magisk.zip"
-    
     if not os.path.exists(magisk_path):
         log_error(f"CRITICAL: Pre-bundled Magisk not found at {magisk_path}")
         sys.exit(1)
     
-    # Prepare keys and certs for avbroot v3.23+
     cert_filename = os.path.basename(key_path).replace(".pem", ".crt").replace(".key", ".crt")
-    if cert_filename == os.path.basename(key_path): cert_filename += ".crt"
+    if cert_filename == os.path.basename(key_path): 
+        cert_filename += ".crt"
     cert_path = os.path.join("/tmp", cert_filename)
     
     if not os.path.exists(cert_path):
@@ -80,7 +75,8 @@ def generate_custota_csig(output_filename, key_path):
     log("Generating Custota metadata...")
     try:
          cert_filename = os.path.basename(key_path).replace(".pem", ".crt").replace(".key", ".crt")
-         if cert_filename == os.path.basename(key_path): cert_filename += ".crt"
+         if cert_filename == os.path.basename(key_path): 
+             cert_filename += ".crt"
          cert_path = os.path.join("/tmp", cert_filename)
          
          csig_path = f"{output_filename}.csig"
@@ -111,9 +107,6 @@ def generate_custota_json(output_filename, csig_filename, device_codename, url_p
          log_error(f"Failed to generate Custota JSON: {e}")
 
 def extract_patched_boot_images(zip_path, output_dir):
-    """
-    Extracts init_boot.img and boot.img from the patched OTA zip.
-    """
     log("Extracting patched boot images...")
     try:
         subprocess.check_call([
