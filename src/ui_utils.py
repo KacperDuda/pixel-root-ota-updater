@@ -1,89 +1,61 @@
 import sys
 import time
-import os
-import re
+import hashlib
+from datetime import datetime
 
 class Color:
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    CYAN = '\033[0;36m'
-    RED = '\033[0;31m'
-    MAGENTA = '\033[0;35m'
-    GRAY = '\033[0;90m'
-    NC = '\033[0m'
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    RESET = '\033[0m'
     BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
 
-def format_size(size):
-    power = 2**10
-    n = 0
-    power_labels = {0 : '', 1: 'KB', 2: 'MB', 3: 'GB', 4: 'TB'}
-    while size > power:
-        size /= power
-        n += 1
-    return f"{size:.2f} {power_labels[n]}"
+def print_header(text):
+    print(f"\n{Color.HEADER}{Color.BOLD}=== {text} ==={Color.RESET}\n")
+
+def print_status(stage, status, message, color=Color.BLUE):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"{Color.CYAN}[{timestamp}]{Color.RESET} {Color.BOLD}{stage:<12}{Color.RESET} : {color}[{status}]{Color.RESET} {message}")
+
+def log(message):
+    print_status("INFO", "...", message, Color.RESET)
+
+def log_error(message):
+    print_status("ERROR", "FAIL", message, Color.RED)
+
+def get_visual_hash(sha256_str):
+    if not sha256_str: return "UNKNOWN"
+    short_hash = sha256_str[:8]
+    r = int(short_hash[:2], 16)
+    g = int(short_hash[2:4], 16)
+    b = int(short_hash[4:6], 16)
+    
+    # ANSI 256 color approximation
+    return f"\033[38;2;{r};{g};{b}m█ █ █ {short_hash} █ █ █\033[0m"
 
 class ProgressBar:
-    def __init__(self, desc, total=0, unit='B'):
-        self.desc = desc
+    def __init__(self, description, total=100):
+        self.description = description
         self.total = total
-        self.unit = unit
-        self.processed = 0
+        self.current = 0
         self.start_time = time.time()
-        self.last_update_time = self.start_time
-        
-        # Disable progress bar if not a TTY (e.g. Cloud Build logs)
-        # We prefer a clean log in production
-        self.enabled = sys.stdout.isatty() and not os.environ.get("CI")
-        
-        if self.enabled:
-            # Initial print
-            self._print_bar()
-        else:
-            # Simple log for production
-            print(f"{desc}...")
+        self._print_bar()
 
-    def update(self, amount):
-        self.processed += amount
-        if not self.enabled: return
-        
-        current_time = time.time()
-        if current_time - self.last_update_time > 0.1 or (self.total > 0 and self.processed >= self.total):
-            self.last_update_time = current_time
-            self._print_bar()
+    def update(self, amount=1):
+        self.current += amount
+        if self.current > self.total: self.current = self.total
+        self._print_bar()
 
     def _print_bar(self):
-        if not self.enabled: return
+        percent = 100 * (self.current / float(self.total)) if self.total > 0 else 0
+        filled_length = int(50 * self.current // self.total) if self.total > 0 else 0
+        bar = '█' * filled_length + '-' * (50 - filled_length)
         
         elapsed = time.time() - self.start_time
-        speed_str = "..."
-        if elapsed > 0:
-            speed = self.processed / elapsed
-            speed_str = f"{format_size(speed)}/s" if self.unit == 'B' else f"{speed:.2f}/s"
-
-        percent_str = ""
-        bar = ""
-        
-        if self.total > 0:
-            percent = min(100.0, self.processed * 100 / self.total)
-            percent_str = f"{percent:.1f}%"
-            
-            bar_len = 30
-            filled = int(bar_len * percent // 100)
-            bar = '█' * filled + '-' * (bar_len - filled)
-            bar = f"|{bar}|"
-        else:
-            bar_len = 10
-            steps = ['-', '\\', '|', '/']
-            idx = int(elapsed * 4) % 4
-            bar = f"[{steps[idx]}]"
-            percent_str = ""
-
-        # Construct line
-        # Template: [DESC] |BAR| PERCENT | PROCESSED/TOTAL | SPEED
-        
-        processed_fmt = format_size(self.processed) if self.unit == 'B' else str(self.processed)
-        total_fmt = format_size(self.total) if self.unit == 'B' and self.total > 0 else (str(self.total) if self.total > 0 else "?")
         
         # Truncate description if too long (fix for line wrapping)
         desc_display = self.desc
