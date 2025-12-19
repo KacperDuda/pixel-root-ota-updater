@@ -1,4 +1,3 @@
-```python
 import os
 import hashlib
 import json
@@ -82,4 +81,3 @@ def update_smart_cache(input_file_sha, key_hash, output_filename):
         with open(mapping_file, 'w') as f:
             json.dump(mapping, f, indent=4)
     except: pass
-```
