@@ -8,7 +8,6 @@ from diagrams.onprem.vcs import Github
 from diagrams.generic.device import Mobile
 from diagrams.onprem.network import Internet
 
-# graph_attr settings for title and layout
 graph_attr = {
     "fontsize": "25",
     "bgcolor": "white",
@@ -20,17 +19,14 @@ graph_attr = {
 }
 
 with Diagram("Pixel Auto-Patcher Architecture", show=False, graph_attr=graph_attr, direction="LR"):
-
     with Cluster("External World"):
         developer = Github("GitHub Repo")
         google_servers = Internet("Google Factory\nImages")
         user_phone = Mobile("Pixel 10")
         
-        # Invisible edges setting vertical order within cluster
         developer - Edge(style="invis") - google_servers - Edge(style="invis") - user_phone
 
     with Cluster("Google Cloud Platform"):
-        
         with Cluster("1. CI/CD"):
             builder = Build("Cloud Build")
             registry = GCR("Artifact Registry")
@@ -46,37 +42,19 @@ with Diagram("Pixel Auto-Patcher Architecture", show=False, graph_attr=graph_att
         with Cluster("4. Security"):
             secrets = SecretManager("Secrets")
 
-    # --- RELATIONS ---
-
-    # A. CI/CD - Orange
     developer >> Edge(label="Push", color="darkorange", fontcolor="darkorange", minlen="2.5") >> builder
     builder >> Edge(label="Build", color="darkorange", fontcolor="darkorange") >> registry
     
-    # B. Trigger - Blue
     cron >> Edge(color="blue") >> worker
     registry >> Edge(label="Pull", color="blue", style="dashed", fontcolor="blue") >> worker
 
-    # C. Worker Logic - English Labels
-    
-    # 1. Android Version check
     worker >> Edge(label="1. Android Ver.", minlen="2.5") >> google_servers
-    
-    # 2. Check Cache
     worker >> Edge(label="2. Check Hash", color="black", fontcolor="black") >> bucket
-    
-    # 3. Fetch Key - Red/Bold
     worker >> Edge(label="3. Fetch Key", color="red", style="bold", fontcolor="red") >> secrets
-    
-    # 4. Download - Dashed
     worker >> Edge(label="4. Download ZIP", style="dashed", color="gray", fontcolor="gray", minlen="2.5") >> google_servers
-    
-    # 5. Upload - Bold
     worker >> Edge(label="5. Upload .zip", style="bold") >> bucket
 
-    # D. Monitoring
     worker >> Edge(color="gray") >> logs
-
-    # E. User - Green
     bucket >> Edge(label="Download Update", color="green", style="bold", fontcolor="darkgreen", minlen="2.5") >> user_phone
 
 print("Diagram generated as pixel_auto_patcher_architecture_v2.png")
